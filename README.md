@@ -21,19 +21,19 @@ Read the live version here: **[gorkemsari.github.io/distributed-systems](https:/
 
 The guide is divided into comprehensive parts. Rather than listing all topics here, below is the high-level progress. For the full, interactive table of contents, please visit the [official website](https://gorkemsari.github.io/distributed-systems).
 
-- [ ] **I. Foundations & The Laws of Physics**
-- [ ] **II. Communication Protocols & API Design**
-- [ ] **III. Data Management & Consistency**
-- [ ] **IV. Data Processing Architectures**
-- [ ] **V. Coordination & Consensus**
-- [ ] **VI. Microservice Architecture Patterns**
-- [ ] **VII. Resilience & Production Engineering**
-- [ ] **VIII. Observability**
-- [ ] **IX. Container Orchestration & Kubernetes**
-- [ ] **X. Service Mesh & Network Security**
-- [ ] **XI. Security Architecture**
-- [ ] **XII. Deployment Strategies & Operations**
-- [ ] **XIII. Case Studies**
+- [ ] **I.** Foundations & The Laws of Physics
+- [ ] **II.** Communication Protocols & API Design
+- [ ] **III.** Data Management & Consistency
+- [ ] **IV.** Data Processing Architectures
+- [ ] **V.** Coordination & Consensus
+- [ ] **VI.** Microservice Architecture Patterns
+- [ ] **VII.** Resilience & Production Engineering
+- [ ] **VIII.** Observability
+- [ ] **IX.** Container Orchestration & Kubernetes
+- [ ] **X.** Service Mesh & Network Security
+- [ ] **XI.** Security Architecture
+- [ ] **XII.** Deployment Strategies & Operations
+- [ ] **XIII.** Case Studies**
 
 <details>
 <summary><b>📂 Click here to expand the detailed Chapter checklist</b></summary>
