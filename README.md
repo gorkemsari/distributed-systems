@@ -431,12 +431,12 @@ This documentation site is built using [Astro](https://astro.build/) and the [St
 
 2. **Install dependencies**
    ```bash
-   npm install
+   pnpm install
    ```
 
 3. **Start the development server**
    ```bash
-   npm run dev
+   pnpm start
    ```
    The site will be available at `http://localhost:4321/distributed-systems`.
 
