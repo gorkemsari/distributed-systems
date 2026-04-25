@@ -3,3 +3,11 @@ title: "I. Foundations & The Laws of Physics"
 sidebar:
   order: 1
 ---
+
+This part covers the fundamental principles and physical constraints of distributed systems. We explore the transition from monolithic architectures, the theoretical models of network failures, and the deep complexities of time and causality across multiple nodes.
+
+### Chapters
+
+* **[1.1. From Monoliths to Distributed Systems](/distributed-systems/foundations/monoliths-to-distributed/)**: Covers scaling limits, stateful vs. stateless architecture decisions, and the fundamental fallacies of distributed computing.
+* **[1.2. System Models and Failure Types](/distributed-systems/foundations/system-models/)**: Examines synchronous vs. asynchronous network models, crash behaviors, cascading failures, and Byzantine faults.
+* **[1.3. Time and Ordering](/distributed-systems/foundations/time-and-ordering/)**: Explores physical clock drift, the happened-before relation, logical clocks (Lamport, Vector), and how to capture causality in distributed environments.

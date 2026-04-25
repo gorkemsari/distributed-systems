@@ -39,8 +39,6 @@ The guide is divided into comprehensive parts. Rather than listing all topics he
 <summary><b>📂 Click here to expand the detailed Chapter checklist</b></summary>
 <br>
 
-*(You can track specific module progress here without cluttering the main page)*
-
 ### I. Foundations & The Laws of Physics
 **1.1. From Monoliths to Distributed Systems**
 - [ ] 1.1.1. The Scaling Dilemma: Vertical vs. Horizontal Scaling
@@ -448,4 +446,4 @@ This documentation site is built using [Astro](https://astro.build/) and the [St
 While this is primarily a personal handbook and reference, suggestions, typo fixes, and discussions are highly welcome! Feel free to open an issue or submit a Pull Request.
 
 ## 📄 License
-[MIT License](LICENSE)
+Licensed under the MIT License.

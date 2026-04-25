@@ -3,3 +3,14 @@ title: "2.3. API Gateway and Service Contracts"
 sidebar:
   order: 3
 ---
+
+Microservices require a robust entry point to route external requests, enforce security, and manage traffic. This chapter focuses on how API Gateways and BFF patterns simplify client-server interactions, and how strict, testable contracts prevent breaking changes in production.
+
+### Topics Covered
+
+* **[2.3.1. API Gateway Pattern: Single Entry Point, Routing, Auth](/distributed-systems/communication/api-gateway/api-gateway-pattern/)**: Explores centralizing cross-cutting concerns like authentication, dynamic routing, and payload transformation.
+* **[2.3.2. Backend for Frontend (BFF) Pattern](/distributed-systems/communication/api-gateway/bff-pattern/)**: Details tailoring specific gateway layers for different client interfaces (e.g., mobile vs. web) to prevent over-fetching.
+* **[2.3.3. OpenAPI / Swagger: Contract-First Development](/distributed-systems/communication/api-gateway/openapi-swagger/)**: Covers the architectural shift of defining machine-readable API specifications before writing backend code.
+* **[2.3.4. Consumer-Driven Contract Testing (Pact)](/distributed-systems/communication/api-gateway/contract-testing/)**: Examines how to safely evolve APIs by letting clients define and test the exact behaviors they depend on.
+* **[2.3.5. Idempotency and Safe HTTP Methods](/distributed-systems/communication/api-gateway/idempotency/)**: Explains designing distributed APIs that can safely handle network retries, timeouts, and duplicate requests.
+* **[2.3.6. Throttling and Rate Limiting at the Gateway Level](/distributed-systems/communication/api-gateway/throttling-rate-limiting/)**: Discusses strategies for protecting downstream microservices from traffic spikes, DDoS attacks, and noisy neighbors.

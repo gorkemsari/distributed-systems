@@ -3,3 +3,13 @@ title: "2.4. Load Balancing"
 sidebar:
   order: 4
 ---
+
+To prevent any single service instance from becoming a bottleneck or a single point of failure, network traffic must be efficiently and intelligently distributed. This chapter explores load balancing architectures, from low-level network routing and distribution algorithms to global-scale traffic management.
+
+### Topics Covered
+
+* **[2.4.1. L4 vs. L7 Load Balancing: Transport vs. Application Layer](/distributed-systems/communication/load-balancing/l4-vs-l7/)**: Compares routing based on raw IP/TCP headers versus deep inspection of HTTP payloads and application data.
+* **[2.4.2. Algorithms: Round Robin, Least Connections, Weighted, Consistent Hashing](/distributed-systems/communication/load-balancing/algorithms/)**: Examines the math and logic behind distributing requests fairly, optimizing resource usage, and maintaining cache locality.
+* **[2.4.3. Client-Side vs. Server-Side Load Balancing](/distributed-systems/communication/load-balancing/client-vs-server-side/)**: Analyzes the architectural trade-offs of placing the routing logic directly within the calling client versus using a dedicated proxy.
+* **[2.4.4. Global Server Load Balancing (GSLB) and Anycast](/distributed-systems/communication/load-balancing/gslb-anycast/)**: Covers multi-region traffic routing, geographic latency optimization, and global disaster recovery.
+* **[2.4.5. Health-Aware Routing and Connection Draining](/distributed-systems/communication/load-balancing/health-aware-routing/)**: Details how to gracefully detect failing nodes, reroute traffic, and safely shut down instances without dropping active user connections.

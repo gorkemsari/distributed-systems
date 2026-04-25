@@ -3,3 +3,14 @@ title: "2.2. Asynchronous Messaging Fundamentals"
 sidebar:
   order: 2
 ---
+
+When services don't need to wait for an immediate response, asynchronous messaging provides a powerful way to decouple systems, handle traffic spikes, and build scalable event-driven architectures. This chapter explores the core concepts of asynchronous communication, comparing broker models, analyzing delivery guarantees, and defining event contracts.
+
+### Topics Covered
+
+* **[2.2.1. Message Queue vs. Event Streaming: Differences and Use Cases](/distributed-systems/communication/async-messaging/message-queue-vs-event-streaming/)**: Clarifies the architectural differences between transient task queues and persistent event logs.
+* **[2.2.2. Kafka Architecture: Topic, Partition, Consumer Group, Offset](/distributed-systems/communication/async-messaging/kafka-architecture/)**: Deep dives into the mechanics of distributed commit logs and high-throughput event processing.
+* **[2.2.3. Pulsar vs. Kafka: Architectural Comparison](/distributed-systems/communication/async-messaging/pulsar-vs-kafka/)**: A structural comparison focusing on the separation of compute and storage in modern streaming platforms.
+* **[2.2.4. RabbitMQ: Exchange Types and Routing](/distributed-systems/communication/async-messaging/rabbitmq/)**: Explores traditional message brokering, exchange types, and complex routing topologies.
+* **[2.2.5. At-Least-Once, At-Most-Once, and Exactly-Once Semantics](/distributed-systems/communication/async-messaging/delivery-semantics/)**: Analyzes the engineering trade-offs and physical realities behind network message delivery guarantees.
+* **[2.2.6. AsyncAPI: Documenting Asynchronous Contracts](/distributed-systems/communication/async-messaging/asyncapi/)**: Covers how to establish, document, and govern asynchronous service contracts effectively.

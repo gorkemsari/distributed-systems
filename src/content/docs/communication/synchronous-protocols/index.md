@@ -3,3 +3,14 @@ title: "2.1. Synchronous Communication Protocols"
 sidebar:
   order: 1
 ---
+
+When services require an immediate response to proceed, they rely on synchronous communication. This chapter explores the primary request-response and continuous connection protocols used in modern architectures, comparing their performance, ideal use cases, and contract designs.
+
+### Topics Covered
+
+* **[2.1.1. REST: Constraints, Resources, and HTTP Contracts](/distributed-systems/communication/synchronous-protocols/rest/)**: Analyzes the foundational principles of resource-oriented architecture and HTTP semantics.
+* **[2.1.2. gRPC & Protocol Buffers: High-Performance RPC](/distributed-systems/communication/synchronous-protocols/grpc-protocol-buffers/)**: Explores binary serialization, strongly typed contracts, and why gRPC dominates internal microservice communication.
+* **[2.1.3. gRPC Streaming: Unary, Server-Streaming, Bi-directional](/distributed-systems/communication/synchronous-protocols/grpc-streaming/)**: Deep dives into moving beyond simple request-response with persistent streaming patterns.
+* **[2.1.4. GraphQL: Query Language and Federation Architecture](/distributed-systems/communication/synchronous-protocols/graphql/)**: Examines how to solve over-fetching and under-fetching by giving clients the power to define response shapes.
+* **[2.1.5. WebSocket and Server-Sent Events: Real-Time Communication](/distributed-systems/communication/synchronous-protocols/websocket-sse/)**: Details protocols for maintaining persistent, low-latency connections for real-time updates.
+* **[2.1.6. API Versioning Strategies](/distributed-systems/communication/synchronous-protocols/api-versioning/)**: Covers how to safely evolve synchronous contracts without breaking existing consumers.
