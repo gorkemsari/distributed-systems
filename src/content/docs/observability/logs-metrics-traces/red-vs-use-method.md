@@ -1,5 +1,5 @@
 ---
-title: "25.4. The RED Method (Rate, Errors, Duration) vs. the USE Method"
+title: "8.1.4. The RED Method (Rate, Errors, Duration) vs. the USE Method"
 sidebar:
   order: 4
 ---

@@ -1,5 +1,5 @@
 ---
-title: "3.6. Google TrueTime & Spanner: Working with Uncertainty"
+title: "1.3.6. Google TrueTime & Spanner: Working with Uncertainty"
 sidebar:
   order: 6
 ---

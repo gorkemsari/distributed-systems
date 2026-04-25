@@ -1,5 +1,5 @@
 ---
-title: "27. SLOs, SLAs, and Error Budgets"
+title: "8.3. SLOs, SLAs, and Error Budgets"
 sidebar:
   order: 3
 ---

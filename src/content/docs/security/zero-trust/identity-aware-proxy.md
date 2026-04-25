@@ -1,5 +1,5 @@
 ---
-title: "32.3. Identity-Aware Proxy (IAP)"
+title: "11.2.3. Identity-Aware Proxy (IAP)"
 sidebar:
   order: 3
 ---

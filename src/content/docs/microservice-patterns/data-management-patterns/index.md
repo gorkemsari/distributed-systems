@@ -1,5 +1,5 @@
 ---
-title: "20. Data Management Patterns"
+title: "6.4. Data Management Patterns"
 sidebar:
   order: 4
 ---

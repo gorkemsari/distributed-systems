@@ -1,5 +1,5 @@
 ---
-title: "40.1. Stream Join Challenges: Temporal Join Strategies"
+title: "13.4.1. Stream Join Challenges: Temporal Join Strategies"
 sidebar:
   order: 1
 ---

@@ -1,5 +1,5 @@
 ---
-title: "IX. Service Mesh & Infrastructure"
+title: "X. Service Mesh & Network Security"
 sidebar:
-  order: 9
+  order: 10
 ---

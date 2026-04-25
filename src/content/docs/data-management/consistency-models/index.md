@@ -1,5 +1,5 @@
 ---
-title: "9. Consistency Models"
+title: "3.3. Consistency Models"
 sidebar:
   order: 3
 ---

@@ -1,5 +1,5 @@
 ---
-title: "11.6. Straggler Tasks: Speculative Execution"
+title: "4.1.6. Straggler Tasks: Speculative Execution"
 sidebar:
   order: 6
 ---

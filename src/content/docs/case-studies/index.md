@@ -1,5 +1,5 @@
 ---
-title: "XII. Case Studies"
+title: "XIII. Case Studies"
 sidebar:
-  order: 12
+  order: 13
 ---

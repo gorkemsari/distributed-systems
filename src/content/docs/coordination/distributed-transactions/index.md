@@ -1,5 +1,5 @@
 ---
-title: "14. Distributed Transactions"
+title: "5.1. Distributed Transactions"
 sidebar:
   order: 1
 ---

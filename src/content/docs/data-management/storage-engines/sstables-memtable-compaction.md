@@ -1,5 +1,5 @@
 ---
-title: "10.2. SSTables, Memtable, and Compaction Strategies"
+title: "3.4.2. SSTables, Memtable, and Compaction Strategies"
 sidebar:
   order: 2
 ---

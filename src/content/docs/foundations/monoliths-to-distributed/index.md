@@ -1,5 +1,5 @@
 ---
-title: "1. From Monoliths to Distributed Systems"
+title: "1.1. From Monoliths to Distributed Systems"
 sidebar:
   order: 1
 ---

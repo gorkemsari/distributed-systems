@@ -1,5 +1,5 @@
 ---
-title: "34.5. A/B Testing: Experimentation via Traffic Splitting"
+title: "12.1.5. A/B Testing: Experimentation via Traffic Splitting"
 sidebar:
   order: 5
 ---

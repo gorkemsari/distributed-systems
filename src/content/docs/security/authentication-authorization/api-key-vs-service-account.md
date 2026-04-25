@@ -1,5 +1,5 @@
 ---
-title: "31.3. API Key vs. Service Account: Service Identity"
+title: "11.1.3. API Key vs. Service Account: Service Identity"
 sidebar:
   order: 3
 ---

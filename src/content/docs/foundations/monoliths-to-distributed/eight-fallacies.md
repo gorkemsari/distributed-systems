@@ -1,5 +1,5 @@
 ---
-title: "1.4. The 8 Fallacies of Distributed Computing"
+title: "1.1.4. The 8 Fallacies of Distributed Computing"
 sidebar:
   order: 4
 ---

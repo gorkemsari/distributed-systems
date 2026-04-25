@@ -1,5 +1,5 @@
 ---
-title: "37. Messaging Platform: Apache Kafka"
+title: "13.1. Messaging Platform: Apache Kafka"
 sidebar:
   order: 1
 ---

@@ -1,5 +1,5 @@
 ---
-title: "X. Security Architecture"
+title: "XI. Security Architecture"
 sidebar:
-  order: 10
+  order: 11
 ---

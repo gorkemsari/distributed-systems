@@ -1,5 +1,5 @@
 ---
-title: "33. Secrets Management and Encryption"
+title: "11.3. Secrets Management and Encryption"
 sidebar:
   order: 3
 ---

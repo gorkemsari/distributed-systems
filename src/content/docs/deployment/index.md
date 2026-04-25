@@ -1,5 +1,5 @@
 ---
-title: "XI. Deployment Strategies & Operations"
+title: "XII. Deployment Strategies & Operations"
 sidebar:
-  order: 11
+  order: 12
 ---

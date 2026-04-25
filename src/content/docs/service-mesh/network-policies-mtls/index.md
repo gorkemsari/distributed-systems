@@ -1,5 +1,5 @@
 ---
-title: "30. Network Policies and mTLS"
+title: "10.2. Network Policies and mTLS"
 sidebar:
-  order: 3
+  order: 2
 ---

@@ -1,5 +1,5 @@
 ---
-title: "19.5. DNS-Based Discovery: Kubernetes DNS"
+title: "6.3.5. DNS-Based Discovery: Kubernetes DNS"
 sidebar:
   order: 5
 ---

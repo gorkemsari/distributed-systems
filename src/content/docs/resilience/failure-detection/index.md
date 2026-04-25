@@ -1,5 +1,5 @@
 ---
-title: "23. Failure Detection and Membership Protocols"
+title: "7.3. Failure Detection and Membership Protocols"
 sidebar:
   order: 3
 ---

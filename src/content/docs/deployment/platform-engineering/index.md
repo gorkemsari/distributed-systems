@@ -1,5 +1,5 @@
 ---
-title: "36. Platform Engineering"
+title: "12.3. Platform Engineering"
 sidebar:
   order: 3
 ---

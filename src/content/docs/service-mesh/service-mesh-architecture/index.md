@@ -1,5 +1,5 @@
 ---
-title: "29. Service Mesh Architecture"
+title: "10.1. Service Mesh Architecture"
 sidebar:
-  order: 2
+  order: 1
 ---

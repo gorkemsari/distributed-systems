@@ -1,5 +1,5 @@
 ---
-title: "4. Synchronous Communication Protocols"
+title: "2.1. Synchronous Communication Protocols"
 sidebar:
   order: 1
 ---

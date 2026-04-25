@@ -1,5 +1,5 @@
 ---
-title: "13. Hybrid Architectures and the Log Abstraction"
+title: "4.3. Hybrid Architectures and the Log Abstraction"
 sidebar:
   order: 3
 ---
