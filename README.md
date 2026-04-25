@@ -33,7 +33,7 @@ The guide is divided into comprehensive parts. Rather than listing all topics he
 - [ ] **X.** Service Mesh & Network Security
 - [ ] **XI.** Security Architecture
 - [ ] **XII.** Deployment Strategies & Operations
-- [ ] **XIII.** Case Studies**
+- [ ] **XIII.** Case Studies
 
 <details>
 <summary><b>📂 Click here to expand the detailed Chapter checklist</b></summary>
