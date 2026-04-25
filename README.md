@@ -1,4 +1,4 @@
-# 🌐 Distributed Systems & Microservices Architecture Guide
+# Distributed Systems & Microservices Architecture Guide
 
 > A comprehensive, evolving handbook on designing, scaling, and maintaining distributed systems and modern microservices.
 
