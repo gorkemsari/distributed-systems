@@ -419,7 +419,7 @@ This documentation site is built using [Astro](https://astro.build/) and the [St
 
 ### Prerequisites
 - Node.js (v18 or higher)
-- npm, pnpm, or yarn
+- pnpm, npm, or yarn
 
 ### Running Locally
 
@@ -438,7 +438,7 @@ This documentation site is built using [Astro](https://astro.build/) and the [St
    ```bash
    pnpm start
    ```
-   The site will be available at `http://localhost:4321/distributed-systems`.
+   The site will be available at `http://localhost:4321/distributed-systems`
 
 ---
 
