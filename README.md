@@ -440,7 +440,7 @@ This documentation site is built using [Astro](https://astro.build/) and the [St
    ```bash
    npm run dev
    ```
-   The site will be available at `http://localhost:4321`.
+   The site will be available at `http://localhost:4321/distributed-systems`.
 
 ---
 
