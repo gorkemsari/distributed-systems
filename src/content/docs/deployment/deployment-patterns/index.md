@@ -3,3 +3,14 @@ title: "12.1. Deployment Patterns"
 sidebar:
   order: 1
 ---
+
+In a monolithic architecture, a deployment is often a high-risk, all-or-nothing event. In distributed systems, deployments must be routine, incremental, and easily reversible. This chapter explores advanced traffic-routing strategies that allow teams to test new versions in production safely before exposing them to all users.
+
+### Topics Covered
+
+* **[12.1.1. Blue/Green Deployment: Instant Cutover and Rollback](/distributed-systems/deployment/deployment-patterns/blue-green-deployment/)**: Explains maintaining two identical production environments to enable zero-downtime releases and immediate recovery.
+* **[12.1.2. Canary Release: Progressive Traffic Shifting](/distributed-systems/deployment/deployment-patterns/canary-release/)**: Details the practice of routing a small percentage of live traffic to a new version, monitoring for errors before a full rollout.
+* **[12.1.3. Rolling Update: Staged Update Strategy](/distributed-systems/deployment/deployment-patterns/rolling-update/)**: Covers incrementally replacing instances of an old version with a new one to maintain cluster capacity during the update.
+* **[12.1.4. Feature Flags: Decoupling Deployment from Release](/distributed-systems/deployment/deployment-patterns/feature-flags/)**: Explores using runtime configuration toggles to push code to production safely while keeping the feature hidden from users.
+* **[12.1.5. A/B Testing: Experimentation via Traffic Splitting](/distributed-systems/deployment/deployment-patterns/ab-testing/)**: Discusses routing traffic based on user segmentation to scientifically measure the business impact of different feature variations.
+* **[12.1.6. Shadow Deployment: Cloning Production Traffic](/distributed-systems/deployment/deployment-patterns/shadow-deployment/)**: Analyzes the ultimate low-risk testing strategy: mirroring live user requests to a hidden release without impacting the actual user response.

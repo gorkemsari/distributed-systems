@@ -3,3 +3,13 @@ title: "13.2. Distributed Key-Value Store: DynamoDB / Cassandra"
 sidebar:
   order: 2
 ---
+
+When traditional relational databases bottleneck, distributed NoSQL stores like DynamoDB and Cassandra offer virtually limitless horizontal scalability. This chapter unpacks the design choices, hashing algorithms, and trade-offs required to guarantee predictable, ultra-low latency at scale.
+
+### Topics Covered
+
+* **[13.2.1. SLA-Driven Design: The P99 Latency Guarantee](/distributed-systems/case-studies/dynamodb-cassandra/sla-driven-design/)**: Explains the engineering philosophy behind designing systems optimized for the worst-case 99th percentile response time.
+* **[13.2.2. DynamoDB's Data Model: Partition Key + Sort Key](/distributed-systems/case-studies/dynamodb-cassandra/dynamodb-data-model/)**: Details how to properly structure data for a distributed store, where access patterns must dictate schema design.
+* **[13.2.3. Cassandra's Consistent Hashing Ring](/distributed-systems/case-studies/dynamodb-cassandra/cassandra-hashing-ring/)**: Explores the decentralized architecture used to distribute data and replicas evenly across a multi-node cluster.
+* **[13.2.4. Using Vector Clocks for Conflict Resolution](/distributed-systems/case-studies/dynamodb-cassandra/vector-clocks-conflict-resolution/)**: Covers the logical timestamping mechanism used to detect and resolve simultaneous updates in a leaderless replication model.
+* **[13.2.5. The Hot Partition Problem: A Real-World Case Study](/distributed-systems/case-studies/dynamodb-cassandra/hot-partition-problem/)**: Analyzes what happens when hashing distribution fails due to uneven access patterns and how to mitigate it with write sharding.

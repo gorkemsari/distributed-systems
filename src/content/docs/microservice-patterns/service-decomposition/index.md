@@ -3,3 +3,14 @@ title: "6.1. Service Decomposition Strategies"
 sidebar:
   order: 1
 ---
+
+The success of a microservices architecture depends heavily on the quality of its service boundaries. This chapter explores the strategies for breaking down a monolith into manageable units, using organizational principles and domain boundaries to avoid the trap of creating a "distributed monolith."
+
+### Topics Covered
+
+* **[6.1.1. Domain-Driven Design (DDD): Bounded Context and Ubiquitous Language](/distributed-systems/microservice-patterns/service-decomposition/domain-driven-design/)**: Explains using business subdomains to define logical boundaries and shared terminology.
+* **[6.1.2. Drawing Service Boundaries: Conway's Law](/distributed-systems/microservice-patterns/service-decomposition/conways-law/)**: Analyzes how your organization's communication structure dictates your software architecture.
+* **[6.1.3. The Strangler Fig Pattern: Safe Migration from Monolith](/distributed-systems/microservice-patterns/service-decomposition/strangler-fig/)**: Covers the incremental strategy for replacing legacy functionality with new services without a "big bang" rewrite.
+* **[6.1.4. Decompose by Business Capability vs. Subdomain](/distributed-systems/microservice-patterns/service-decomposition/decompose-by-capability/)**: Compares two primary methods for identifying and grouping service responsibilities.
+* **[6.1.5. Anti-Pattern: The Distributed Monolith — How to Avoid It](/distributed-systems/microservice-patterns/service-decomposition/distributed-monolith/)**: Identifies the warning signs of tightly coupled services that require coordinated deployments.
+* **[6.1.6. Service Granularity: How Small Is Too Small?](/distributed-systems/microservice-patterns/service-decomposition/service-granularity/)**: Discusses the trade-offs between extreme modularity and the operational overhead of managing hundreds of tiny services.

@@ -3,3 +3,14 @@ title: "4.2. Stream Processing"
 sidebar:
   order: 2
 ---
+
+Modern businesses cannot wait hours for a nightly batch job to complete; they need real-time reactions to data the moment it arrives. This chapter explores the complexities of stream processing, dealing with infinite data flows, network-delayed events, and the stateful mechanics required to calculate accurate results on the fly.
+
+### Topics Covered
+
+* **[4.2.1. Bounded vs. Unbounded Data](/distributed-systems/data-processing/stream-processing/bounded-vs-unbounded/)**: Defines the fundamental architectural shift from processing finite, static datasets to handling infinite, continuous streams of information.
+* **[4.2.2. Event Time vs. Processing Time: The Critical Distinction](/distributed-systems/data-processing/stream-processing/event-time-vs-processing-time/)**: Explores why the time a system observes a message is often different from when it actually occurred, and why this matters for accurate analytics.
+* **[4.2.3. Windowing: Tumbling, Sliding, and Session Windows](/distributed-systems/data-processing/stream-processing/windowing/)**: Details how to slice infinite streams into finite, computable chunks based on time intervals or user activity.
+* **[4.2.4. Watermarks: The Art of Managing Late Data](/distributed-systems/data-processing/stream-processing/watermarks/)**: Explains the heuristic mechanisms used to safely close time windows and emit results, even when network delays cause events to arrive out of order.
+* **[4.2.5. Triggers and Accumulation Modes](/distributed-systems/data-processing/stream-processing/triggers-accumulation/)**: Covers when to emit early, speculative results and how to gracefully handle data that arrives long after a window has already been processed.
+* **[4.2.6. Apache Flink: Depth of Stateful Stream Processing](/distributed-systems/data-processing/stream-processing/apache-flink/)**: Deep dives into a leading framework that provides true, low-latency stream processing with robust state management and exactly-once guarantees.

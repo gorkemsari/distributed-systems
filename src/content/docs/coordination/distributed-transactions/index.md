@@ -3,3 +3,14 @@ title: "5.1. Distributed Transactions"
 sidebar:
   order: 1
 ---
+
+When a single business operation spans multiple independent databases or microservices, traditional database transactions are no longer enough. This chapter explores how to maintain data consistency across distributed boundaries, contrasting strict, synchronous commit protocols with modern, asynchronous patterns.
+
+### Topics Covered
+
+* **[5.1.1. ACID vs. BASE: Guarantees and Trade-offs](/distributed-systems/coordination/distributed-transactions/acid-vs-base/)**: Compares the strict consistency of traditional relational databases with the high availability and eventual consistency models of distributed architectures.
+* **[5.1.2. Two-Phase Commit (2PC): Blocking Nature and Risks](/distributed-systems/coordination/distributed-transactions/two-phase-commit/)**: Analyzes the standard protocol for distributed atomic commits and its vulnerability to coordinator failures and node blocking.
+* **[5.1.3. Three-Phase Commit (3PC): Reducing Blockage](/distributed-systems/coordination/distributed-transactions/three-phase-commit/)**: Explores the theoretical improvement over 2PC designed to prevent indefinite blocking through timeouts and an additional voting phase.
+* **[5.1.4. The SAGA Pattern: Choreography vs. Orchestration](/distributed-systems/coordination/distributed-transactions/saga-pattern/)**: Details the modern microservice approach of breaking long-running transactions into a sequence of local transactions, coordinated via events or a central controller.
+* **[5.1.5. Compensating Transactions](/distributed-systems/coordination/distributed-transactions/compensating-transactions/)**: Explains the semantic rollback mechanism used in SAGAs, where failures require executing specific operations to logically undo previous successful steps.
+* **[5.1.6. The Outbox Pattern: Atomic DB Write + Message Publishing](/distributed-systems/coordination/distributed-transactions/outbox-pattern/)**: Solves the dual-write problem by guaranteeing that a local database update and its corresponding outbound event message are safely committed together.

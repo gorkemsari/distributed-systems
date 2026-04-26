@@ -3,3 +3,13 @@ title: "12.3. Platform Engineering"
 sidebar:
   order: 3
 ---
+
+As an engineering organization scales, forcing every developer to become an expert in Kubernetes, Terraform, and CI/CD pipelines creates massive cognitive overload. This chapter explores Platform Engineering—treating the internal development experience as a product to boost velocity, standardize security, and optimize infrastructure costs.
+
+### Topics Covered
+
+* **[12.3.1. Internal Developer Platform (IDP): What It Is and Why It Is Needed](/distributed-systems/deployment/platform-engineering/internal-developer-platform/)**: Defines the self-service abstraction layer that empowers developers to spin up resources without waiting for ops tickets.
+* **[12.3.2. Backstage: Service Catalog and Developer Portal](/distributed-systems/deployment/platform-engineering/backstage/)**: Examines the industry-standard framework for centralizing documentation, tooling, and service ownership into a single UI.
+* **[12.3.3. Golden Paths: Speed and Security Through Standardized Routes](/distributed-systems/deployment/platform-engineering/golden-paths/)**: Explains the strategy of providing pre-configured, highly supported architectural templates to guide developer choices.
+* **[12.3.4. Infrastructure as Code: Terraform and Pulumi](/distributed-systems/deployment/platform-engineering/infrastructure-as-code/)**: Details the programmatic provisioning of cloud resources, ensuring infrastructure is repeatable, reviewable, and version-controlled.
+* **[12.3.5. Cost Optimization: Monitoring and Optimizing Resource Utilization](/distributed-systems/deployment/platform-engineering/cost-optimization/)**: Covers the crucial discipline of tracking cloud spend across microservices, identifying idle resources, and right-sizing cluster capacity.

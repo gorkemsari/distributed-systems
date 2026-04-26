@@ -3,3 +3,14 @@ title: "8.2. Tools and Standards"
 sidebar:
   order: 2
 ---
+
+Observability theory requires a robust technical implementation to handle massive telemetry data. This chapter covers the industry-standard tools and frameworks that form the modern observability stack, emphasizing open standards and high-performance collection mechanisms.
+
+### Topics Covered
+
+* **[8.2.1. OpenTelemetry: The Vendor-Neutral Instrumentation Standard](/distributed-systems/observability/observability-tools/opentelemetry/)**: Explores the unified API and SDK standard that prevents vendor lock-in by decoupling how you generate telemetry from where you store it.
+* **[8.2.2. Prometheus: Pull-Based Metric Collection and PromQL](/distributed-systems/observability/observability-tools/prometheus/)**: Details the leading time-series database architecture that scrapes metrics from targets rather than waiting for them to be pushed.
+* **[8.2.3. Grafana: Dashboard Design and Alerting](/distributed-systems/observability/observability-tools/grafana/)**: Covers best practices for visualizing complex telemetry data and configuring actionable, fatigue-free alerts.
+* **[8.2.4. Jaeger / Zipkin / Tempo: Distributed Tracing Backends](/distributed-systems/observability/observability-tools/tracing-backends/)**: Compares the storage and querying engines used to reconstruct and visualize distributed traces.
+* **[8.2.5. Loki: Log Aggregation with the Prometheus Philosophy](/distributed-systems/observability/observability-tools/loki/)**: Examines a cost-effective logging architecture that indexes only metadata (labels) instead of the full log text.
+* **[8.2.6. eBPF: Kernel-Level Observability (Cilium, Pixie)](/distributed-systems/observability/observability-tools/ebpf-observability/)**: Introduces the revolutionary technology that extracts deep network, security, and performance metrics directly from the Linux kernel without altering application code.

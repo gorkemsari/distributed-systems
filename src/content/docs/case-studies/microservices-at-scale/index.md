@@ -3,3 +3,13 @@ title: "13.3. Microservices at Scale: Netflix, Uber, Airbnb"
 sidebar:
   order: 3
 ---
+
+The biggest names in tech did not arrive at their current architectures overnight. This chapter examines the growing pains, migrations, and structural realignments of hyperscale companies, emphasizing both the technical solutions and the cultural practices required to sustain them.
+
+### Topics Covered
+
+* **[13.3.1. Netflix: The Birth of Chaos Engineering](/distributed-systems/case-studies/microservices-at-scale/netflix-chaos-engineering/)**: Looks at how Netflix built a culture of resilience by intentionally breaking their own production systems.
+* **[13.3.2. Uber's Domain-Oriented Microservice Architecture (DOMA)](/distributed-systems/case-studies/microservices-at-scale/uber-doma/)**: Explores Uber's transition from thousands of tangled microservices into structured, domain-based service groupings.
+* **[13.3.3. Airbnb's Journey from Monolith to Microservices](/distributed-systems/case-studies/microservices-at-scale/airbnb-migration/)**: Analyzes the phased migration strategy used to decompose a massive Ruby on Rails application without stopping feature development.
+* **[13.3.4. Postmortem Culture: The Blameless Retrospective](/distributed-systems/case-studies/microservices-at-scale/postmortem-culture/)**: Discusses the critical organizational practice of learning from outages by focusing on systemic flaws rather than human error.
+* **[13.3.5. Technical Debt Management: Sustainability at Scale](/distributed-systems/case-studies/microservices-at-scale/technical-debt-management/)**: Examines how massive engineering teams balance the need to ship new features with the necessity of refactoring and maintaining legacy systems.

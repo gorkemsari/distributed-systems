@@ -3,3 +3,12 @@ title: "XII. Deployment Strategies & Operations"
 sidebar:
   order: 12
 ---
+
+Writing the code for a distributed system is only half the battle; the other half is safely delivering it to production without breaking existing functionality. This part explores the operational lifecycle of microservices, from advanced zero-downtime deployment strategies to the foundational practices of GitOps, Platform Engineering, and the unique complexities of testing highly decoupled, asynchronous systems.
+
+### Chapters
+
+* **[12.1. Deployment Patterns](/distributed-systems/deployment/deployment-patterns/)**: Explores strategies like Blue/Green, Canary, and Feature Flags to decouple code deployments from feature releases and minimize operational risk.
+* **[12.2. GitOps and CI/CD](/distributed-systems/deployment/gitops-cicd/)**: Covers the modern approach to continuous delivery, treating Git as the single source of truth for both application code and infrastructure state.
+* **[12.3. Platform Engineering](/distributed-systems/deployment/platform-engineering/)**: Discusses how to reduce developer cognitive load by building Internal Developer Platforms (IDPs) and paving "Golden Paths" for standardizing infrastructure.
+* **[12.4. Testing in Distributed Systems](/distributed-systems/deployment/distributed-testing/)**: Examines the challenges of verifying interactions across service boundaries, handling eventual consistency in tests, and managing reliable test environments.

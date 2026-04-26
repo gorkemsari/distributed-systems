@@ -3,3 +3,13 @@ title: "11.2. Zero Trust Architecture"
 sidebar:
   order: 2
 ---
+
+The concept of a "trusted internal network" is a dangerous fallacy. This chapter covers the Zero Trust security model, where perimeter defenses are replaced by strict, identity-based access controls, micro-segmentation, and the assumption that a breach is inevitable.
+
+### Topics Covered
+
+* **[11.2.1. Engineering the Never Trust, Always Verify Principle](/distributed-systems/security/zero-trust/never-trust-always-verify/)**: Defines the foundational philosophy of shifting security from network topology to granular identity and context.
+* **[11.2.2. Micro-Segmentation: The Least-Privilege Network Model](/distributed-systems/security/zero-trust/micro-segmentation/)**: Explains how to divide a datacenter into secure, isolated zones to prevent lateral movement by attackers.
+* **[11.2.3. Identity-Aware Proxy (IAP)](/distributed-systems/security/zero-trust/identity-aware-proxy/)**: Details how to protect internal applications without a VPN by acting as a centralized, identity-verifying gatekeeper.
+* **[11.2.4. The BeyondCorp Model: Google's Approach](/distributed-systems/security/zero-trust/beyondcorp/)**: Looks at the pioneering enterprise architecture that shifted access controls from the network perimeter to individual users and devices.
+* **[11.2.5. Continuous Verification: Dynamic Security Decisions](/distributed-systems/security/zero-trust/continuous-verification/)**: Discusses why one-time login checks are insufficient and how to continuously evaluate trust based on device health and behavioral anomalies.

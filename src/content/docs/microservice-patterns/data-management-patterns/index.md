@@ -3,3 +3,13 @@ title: "6.4. Data Management Patterns"
 sidebar:
   order: 4
 ---
+
+Decentralizing data is the most difficult part of microservices. This chapter addresses the patterns required to maintain data consistency, handle distributed queries, and choose the right storage technology for each specific service's needs.
+
+### Topics Covered
+
+* **[6.4.1. Database per Service: Independence and Isolation](/distributed-systems/microservice-patterns/data-management-patterns/database-per-service/)**: Discusses the gold standard for microservice autonomy and preventing tight coupling at the data layer.
+* **[6.4.2. Shared Database Anti-Pattern: Why It Is Dangerous](/distributed-systems/microservice-patterns/data-management-patterns/shared-database-antipattern/)**: Analyzes how shared schemas create hidden dependencies and bottleneck scaling.
+* **[6.4.3. API Composition: The Distributed Join Problem](/distributed-systems/microservice-patterns/data-management-patterns/api-composition/)**: Explains how to aggregate data from multiple services in-memory when a single database join is no longer possible.
+* **[6.4.4. Polyglot Persistence: The Right Database for the Right Job](/distributed-systems/microservice-patterns/data-management-patterns/polyglot-persistence/)**: Covers the architectural freedom of using different database types (NoSQL, SQL, Graph) based on specific service requirements.
+* **[6.4.5. Cross-Service Query: The Materialized View Pattern](/distributed-systems/microservice-patterns/data-management-patterns/materialized-view/)**: Details how to replicate and pre-aggregate data into local views for high-performance read access across service boundaries.

@@ -3,3 +3,14 @@ title: "3.5. Distributed Caching"
 sidebar:
   order: 5
 ---
+
+As systems scale, hitting the primary database for every read request becomes a major performance bottleneck. This chapter explores distributed caching architectures designed to drastically reduce latency and protect backend resources, while addressing the notorious challenges of cache invalidation, data consistency, and stampedes.
+
+### Topics Covered
+
+* **[3.5.1. Cache Strategies: Cache-Aside, Read-Through, Write-Through, Write-Behind](/distributed-systems/data-management/distributed-caching/cache-strategies/)**: Examines the fundamental patterns for integrating caches into your application flow, balancing data freshness with write latency.
+* **[3.5.2. Cache Invalidation: TTL, Event-Based, and Versioned Keys](/distributed-systems/data-management/distributed-caching/cache-invalidation/)**: Tackles one of the hardest problems in distributed systems: ensuring stale data is effectively purged or updated before it harms the user experience.
+* **[3.5.3. Redis Cluster Architecture: Sharding, Replication, Sentinel](/distributed-systems/data-management/distributed-caching/redis-cluster/)**: Deep dives into how Redis scales horizontally and maintains high availability through partitioned datasets and automated failover.
+* **[3.5.4. Cache Stampede and Thundering Herd: Prevention Techniques](/distributed-systems/data-management/distributed-caching/cache-stampede/)**: Details how to protect your primary databases from collapsing when a highly accessed, expensive cache key suddenly expires.
+* **[3.5.5. Distributed vs. Local Cache: Consistency Trade-offs](/distributed-systems/data-management/distributed-caching/distributed-vs-local/)**: Compares blazing-fast, in-memory application caches with centralized remote caches, exploring the complexities of multi-level caching (L1/L2).
+* **[3.5.6. Memcached vs. Redis: Architectural Comparison](/distributed-systems/data-management/distributed-caching/memcached-vs-redis/)**: Contrasts Memcached's multi-threaded simplicity and pure caching focus with Redis's single-threaded, feature-rich data structures.

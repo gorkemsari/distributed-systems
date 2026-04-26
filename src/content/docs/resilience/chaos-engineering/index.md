@@ -3,3 +3,13 @@ title: "7.4. Chaos Engineering"
 sidebar:
   order: 4
 ---
+
+You cannot be absolutely certain your distributed system is resilient until you observe it survive real-world failure conditions. This chapter covers the discipline of Chaos Engineering: intentionally and safely injecting faults into production systems to uncover hidden vulnerabilities before they cause an actual outage.
+
+### Topics Covered
+
+* **[7.4.1. Chaos Monkey: Netflix's Pioneering Approach](/distributed-systems/resilience/chaos-engineering/chaos-monkey/)**: Looks at the origins of chaos engineering and the concept of randomly terminating virtual machines in production.
+* **[7.4.2. Principles of Chaos Engineering: Hypothesis, Blast Radius, Observation](/distributed-systems/resilience/chaos-engineering/chaos-principles/)**: Explains the scientific method behind safe fault injection, ensuring experiments validate resilience without impacting real users.
+* **[7.4.3. Fault Injection: Simulating Latency, Exceptions, and Partitions](/distributed-systems/resilience/chaos-engineering/fault-injection/)**: Details the specific network and application-level failures used to test circuit breakers, timeouts, and fallback logic.
+* **[7.4.4. GameDay: Disaster Scenario Drills](/distributed-systems/resilience/chaos-engineering/gameday/)**: Covers the organizational practice of running scheduled, team-wide exercises to validate incident response and system recovery protocols.
+* **[7.4.5. Automating Chaos: Litmus, Chaos Toolkit](/distributed-systems/resilience/chaos-engineering/chaos-automation/)**: Discusses modern tooling designed to integrate chaos experiments directly into continuous delivery (CD) pipelines.

@@ -3,3 +3,14 @@ title: "3.3. Consistency Models"
 sidebar:
   order: 3
 ---
+
+Perfect data synchronization across a distributed system is physically impossible without sacrificing availability or latency. This chapter explores the theoretical theorems that govern these trade-offs and the spectrum of consistency models available, from strict linearizability to eventual consistency and conflict-free data types.
+
+### Topics Covered
+
+* **[3.3.1. Linearizability: The Strongest Guarantee, the Highest Cost](/distributed-systems/data-management/consistency-models/linearizability/)**: Defines the illusion of a single, instantaneous copy of data and the heavy performance penalties required to achieve it.
+* **[3.3.2. Serializability: Transaction Isolation](/distributed-systems/data-management/consistency-models/serializability/)**: Clarifies the critical difference between multi-operation transactional isolation (Serializability) and single-object recency (Linearizability).
+* **[3.3.3. CAP Theorem: CP vs. AP Systems](/distributed-systems/data-management/consistency-models/cap-theorem/)**: Analyzes the fundamental architectural choice between Consistency and Availability when a network Partition occurs.
+* **[3.3.4. PACELC Theorem: The Latency-Consistency Trade-off](/distributed-systems/data-management/consistency-models/pacelc-theorem/)**: Expands on CAP to address the continuous trade-offs between latency and consistency during normal, healthy operations.
+* **[3.3.5. Eventual Consistency: Last Write Wins (LWW) and Its Weaknesses](/distributed-systems/data-management/consistency-models/eventual-consistency/)**: Explores highly available systems where replicas converge over time, and the data loss risks of simplistic conflict resolution.
+* **[3.3.6. CRDTs: Conflict-free Replicated Data Types](/distributed-systems/data-management/consistency-models/crdts/)**: Introduces specialized data structures designed to mathematically guarantee convergence without relying on distributed locks or coordination.
