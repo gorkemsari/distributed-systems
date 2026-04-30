@@ -16,6 +16,34 @@ export default defineConfig({
           href: 'https://github.com/gorkemsari/distributed-systems',
         },
       ],
+      head: [
+        {
+          tag: 'script',
+          attrs: { type: 'module' },
+          content: [
+            "import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';",
+            "mermaid.initialize({ startOnLoad: false, theme: 'dark' });",
+            "function decodeHTML(str) { const txt = document.createElement('textarea'); txt.innerHTML = str; return txt.value; }",
+            "function getMermaidSource(pre) {",
+            "  const lines = pre.querySelectorAll('.ec-line');",
+            "  if (lines.length > 0) { return decodeHTML(Array.from(lines).map(l => l.textContent).join(String.fromCharCode(10))); }",
+            "  return decodeHTML(pre.querySelector('code').textContent);",
+            "}",
+            "function renderMermaid() {",
+            "  document.querySelectorAll('pre[data-language=\"mermaid\"]').forEach((pre) => {",
+            "    const div = document.createElement('div');",
+            "    div.className = 'mermaid not-content';",
+            "    div.textContent = getMermaidSource(pre);",
+            "    const wrapper = pre.closest('.expressive-code') ?? pre;",
+            "    wrapper.replaceWith(div);",
+            "  });",
+            "  mermaid.run({ nodes: document.querySelectorAll('div.mermaid:not([data-processed])') });",
+            "}",
+            "document.addEventListener('DOMContentLoaded', renderMermaid);",
+            "document.addEventListener('astro:page-load', renderMermaid);",
+          ].join("\n"),
+        },
+      ],
       sidebar: [
 
         // ── I. FOUNDATIONS ───────────────────────────────────────────────
