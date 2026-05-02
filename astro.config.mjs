@@ -42,6 +42,13 @@ export default defineConfig({
       ],
       head: [
         {
+          tag: 'meta',
+          attrs: {
+            name: 'google-site-verification',
+            content: 'mqcQWNp5X5PUrPO0hj6DiALBxOH3x8Ijk1bfUpFCEyI',
+          },
+        },
+        {
           tag: 'script',
           attrs: { type: 'module' },
           content: [
