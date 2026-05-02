@@ -920,8 +920,8 @@ export default defineConfig({
                   slug: 'microservice-patterns/service-decomposition/decompose-by-capability',
                 },
                 {
-                  label: '6.1.5. Anti-Pattern: The Distributed Monolith — How to Avoid It',
-                  translations: { tr: '6.1.5. Anti-Desen: Dağıtık Monolit — Nasıl Kaçınılır' },
+                  label: '6.1.5. Anti-Pattern: The Distributed Monolith - How to Avoid It',
+                  translations: { tr: '6.1.5. Anti-Desen: Dağıtık Monolit - Nasıl Kaçınılır' },
                   slug: 'microservice-patterns/service-decomposition/distributed-monolith',
                 },
                 {

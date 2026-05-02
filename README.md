@@ -9,7 +9,7 @@
 
 This repository serves as the source code and content tracker for an in-depth digital handbook on **Distributed Systems and Microservices Architecture**. It bridges the critical gap between theoretical academic concepts and real-world engineering challenges.
 
-Designed as a practitioner's guide, it moves beyond basic tutorials to focus on pragmatic trade-offs, advanced architectural patterns (such as CQRS, Event Sourcing, Sagas, and the Outbox pattern), and production-grade system design. The handbook systematically explores the entire lifecycle of distributed systems—from low-level data partitioning, consensus, and asynchronous communication to Kubernetes orchestration, Service Mesh integration, zero-trust security, and chaos engineering.
+Designed as a practitioner's guide, it moves beyond basic tutorials to focus on pragmatic trade-offs, advanced architectural patterns (such as CQRS, Event Sourcing, Sagas, and the Outbox pattern), and production-grade system design. The handbook systematically explores the entire lifecycle of distributed systems-from low-level data partitioning, consensus, and asynchronous communication to Kubernetes orchestration, Service Mesh integration, zero-trust security, and chaos engineering.
 
 Whether you are safely decomposing monolithic architectures, building high-throughput data processing pipelines, or engineering resilient infrastructure at scale, this guide aims to provide structured, deeply technical, and easily digestible knowledge grounded in industry-standard case studies.
 
@@ -199,7 +199,7 @@ The guide is divided into comprehensive parts. Rather than listing all topics he
 - [ ] 6.1.2. Drawing Service Boundaries: Conway
 - [ ] 6.1.3. The Strangler Fig Pattern: Safe Migration from Monolith
 - [ ] 6.1.4. Decompose by Business Capability vs. Subdomain
-- [ ] 6.1.5. Anti-Pattern: The Distributed Monolith — How to Avoid It
+- [ ] 6.1.5. Anti-Pattern: The Distributed Monolith - How to Avoid It
 - [ ] 6.1.6. Service Granularity: How Small Is Too Small?
 
 **6.2. Structural Patterns**
