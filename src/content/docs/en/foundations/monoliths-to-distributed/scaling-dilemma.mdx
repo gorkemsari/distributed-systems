@@ -1,132 +1,178 @@
 ---
 title: "1.1.1. The Scaling Dilemma: Vertical vs. Horizontal Scaling"
-description: "A mechanistic comparison of vertical and horizontal scaling strategies, covering hardware limits, cost curves, stateful constraints, and the operational trade-offs that determine which approach survives contact with production."
-lastUpdated: 2026-05-02
+description: "A mechanistic analysis of vertical and horizontal scaling trade-offs, covering NUMA topology, Amdahl's Law, the Universal Scalability Law, distributed coordination overhead, and the economic inflection points that force architectural decisions."
+lastUpdated: 2026-05-13
 sidebar:
   order: 1
 ---
 
-Scaling is not a choice between two equally valid options. It is a sequence of decisions made under constraints - hardware ceilings, budget curves, latency budgets, and the irreversible architectural commitments that each path demands.
+Every system eventually hits a wall. Traffic grows, data volumes accumulate, or latency requirements tighten beyond what the current hardware configuration can deliver. The response to that wall defines the entire downstream architecture: either add more capability to existing machines (**vertical scaling**, scale-up) or add more machines (**horizontal scaling**, scale-out). The choice is not aesthetic — it is determined by physics, economics, and the nature of the workload. Getting it wrong early means carrying the wrong assumptions into every subsequent architectural decision.
  
-## Vertical Scaling: Physics as the Ceiling
+## Vertical Scaling: The Physics of a Single Machine
  
-**Vertical scaling** (scale-up) means adding resources to a single machine: more CPU cores, more RAM, faster NVMe storage, higher-bandwidth NICs. For a long time, this was the default answer to capacity problems because it required zero changes to application code.
+Vertical scaling means replacing or upgrading a machine with one that has more CPUs, more RAM, faster storage, or higher network bandwidth. For stateful systems — databases, caches, message brokers — this is often the path of least resistance because no application code changes, no distribution logic is required, and the consistency model remains trivially simple.
  
-The economics made sense when Moore's Law held. From 1970 to roughly 2005, transistor density doubled every ~18 months, which meant that waiting 18 months and buying a new server was often cheaper than re-architecting software. That era is over.
+The appeal is real, but it runs directly into several hard physical limits.
  
-Modern high-core-count servers expose a fundamental hardware constraint: **NUMA (Non-Uniform Memory Access)**. When a CPU socket needs to access memory physically attached to a different socket, the latency penalty is 2-4× compared to local memory access. A 128-core server is not a 128-core homogeneous machine - it is two or four NUMA nodes connected by an inter-socket interconnect (Intel UPI, AMD Infinity Fabric). Code that is not NUMA-aware - which includes most off-the-shelf databases - experiences contention and unpredictable latency under high core counts.
+### NUMA Topology and Memory Bandwidth
  
-```shell
-# Inspect NUMA topology on a Linux host
-numactl --hardware
- 
-# Output on a dual-socket 64-core server:
-# available: 2 nodes (0-1)
-# node 0 cpus: 0-31 63-95
-# node 0 size: 128795 MB
-# node 1 cpus: 32-62 96-127
-# node 1 size: 129024 MB
-# node distances:
-# node   0   1
-#   0:  10  21    ← cross-socket access is 2.1× more expensive
-#   1:  21  10
-```
- 
-Beyond NUMA, there is the **memory bus saturation** problem. A 96-core server with DDR5 memory typically has 8-12 memory channels. At full utilization, those channels saturate before the CPUs do. At that point, adding more CPU cores produces zero throughput improvement - you have bought expensive silicon that spends most of its time stalled waiting for memory.
- 
-The hard ceiling is the largest instance a cloud provider sells. As of 2024, that is roughly 448 vCPUs and 24 TB RAM on AWS (`u-24tb1.112xlarge`). When you hit it, you have no vertical headroom left - and you have likely already been paying a significant per-unit premium to be near that ceiling for months.
- 
-:::caution
-Vertical scaling masks architectural problems. A monolith that requires a 48xlarge instance to handle load is a monolith with serious coupling problems that a bigger machine will not fix - it will merely delay the conversation at 10× the cost.
-:::
- 
-## Horizontal Scaling: Complexity as the Tax
- 
-**Horizontal scaling** (scale-out) distributes load across multiple commodity machines. The economics are compelling: two servers at half the cost of one large server, with the additional benefit of redundancy. The catch is that your application must be designed to support it.
- 
-The core requirement is **statelessness**. If a service stores session state, in-progress computation state, or cache state locally on the instance, then any request routed to a different instance fails or returns stale data. This forces all durable state out of the application tier and into a shared layer - databases, distributed caches, object stores - which then become the bottleneck and consistency point.
+Modern multi-socket servers do not have uniform memory access. In a **Non-Uniform Memory Access (NUMA)** architecture, each CPU socket has its own local memory bank. A CPU accessing its local memory achieves full bandwidth (typically 100-200 GB/s on current Xeon or EPYC hardware). The same CPU accessing memory attached to a *remote* socket crosses the NUMA interconnect — Intel's UPI (Ultra Path Interconnect) or AMD's Infinity Fabric — and pays a latency penalty of 30-100 ns and a bandwidth penalty of 30-50% compared to local access.
  
 ```mermaid
 flowchart LR
-    LB[Load Balancer]
-    A1[App Instance 1]
-    A2[App Instance 2]
-    A3[App Instance 3]
-    DB[(Shared DB)]
-    CACHE[(Redis Cluster)]
- 
-    LB --> A1 & A2 & A3
-    A1 & A2 & A3 --> DB
-    A1 & A2 & A3 --> CACHE
+    subgraph Socket0["Socket 0"]
+        CPU0[CPU Cores 0-31]
+        RAM0[RAM Bank 0\n512 GB]
+        CPU0 <-->|local ~100 GB/s| RAM0
+    end
+    subgraph Socket1["Socket 1"]
+        CPU1[CPU Cores 32-63]
+        RAM1[RAM Bank 1\n512 GB]
+        CPU1 <-->|local ~100 GB/s| RAM1
+    end
+    CPU0 <-->|remote NUMA\n~60 GB/s, +40ns| RAM1
+    CPU1 <-->|remote NUMA\n~60 GB/s, +40ns| RAM0
+    CPU0 <-->|UPI/Infinity Fabric| CPU1
 ```
-*Stateless application tier horizontally scaled behind a load balancer. All persistent state lives in shared infrastructure, which becomes the coordination bottleneck.*
+*Two-socket NUMA topology: remote memory access pays a bandwidth and latency penalty through the inter-socket interconnect.*
  
-Horizontal scaling introduces problems that simply do not exist in a single-process model:
+This matters operationally. A PostgreSQL instance on a 2-socket server with 96 cores will not linearly scale read throughput as you add cores, because cache-line transfers between sockets become a bottleneck. Database buffer pools that span NUMA boundaries cause frequent remote memory accesses. The Linux kernel's NUMA balancing heuristics mitigate but do not eliminate this, and they introduce their own CPU overhead through page migration.
  
-- **Partial failures.** One instance can die while others continue serving traffic. A caller cannot distinguish between a slow node and a failed node without timeouts, which must be tuned against your latency SLO.
-- **Clock skew.** Two instances will not have perfectly synchronized clocks. Operations that depend on wall-clock ordering (e.g., "last write wins" conflict resolution) become unreliable without deliberate clock synchronization strategies.
-- **Network latency.** A function call that takes nanoseconds in a monolith now crosses a network with ~0.5ms median latency in a well-provisioned data center, and potentially orders of magnitude higher under packet loss or TCP retransmission.
-- **Distributed coordination.** Any operation that requires atomicity across multiple instances - distributed locks, distributed transactions - requires coordination protocols (2PC, Raft-based consensus) that are expensive and carry their own failure modes.
-See [The 8 Fallacies of Distributed Computing](/distributed-systems/en/foundations/monoliths-to-distributed/eight-fallacies/) for the full taxonomy of assumptions that horizontal scaling invalidates.
+Scaling to 4-socket and 8-socket machines amplifies this: every additional socket adds another hop on the NUMA mesh, and the coherency traffic required to keep CPU caches consistent across sockets grows with the square of socket count. This is why 4-socket and 8-socket machines have historically been the domain of in-memory databases (SAP HANA, VoltDB) willing to pay enormous per-core licensing costs to exploit the raw memory capacity.
  
-## Cost-Performance Curves: Where Each Strategy Breaks Down
+### Amdahl's Law: The Ceiling on Parallelism
  
-The practical decision between vertical and horizontal is not philosophical - it is a function of where you are on each strategy's cost curve.
+**Amdahl's Law** establishes the theoretical maximum speedup from adding CPU cores when a portion of the workload is inherently sequential:
  
-| Dimension | Vertical Scaling | Horizontal Scaling | When to prefer vertical |
-|---|---|---|---|
-| **Unit cost at low scale** | Low | Higher (orchestration overhead) | Workloads under ~10k req/s |
-| **Unit cost at high scale** | Superlinear (premium tier pricing) | Near-linear | Almost never at high scale |
-| **Operational complexity** | Low | High (service discovery, load balancing, distributed state) | Teams without platform engineering capacity |
-| **Failure blast radius** | Single point of failure | Partial failure possible | When downtime is acceptable |
-| **Latency** | Nanosecond inter-process comms | Sub-millisecond to millisecond network hops | Latency-critical, lock-heavy workloads |
-| **Stateful workloads** | No coordination required | Requires external state management | When state cannot be externalized |
-| **Elasticity** | Manual, requires instance replacement | Automated, sub-minute provisioning | When demand is predictable |
+```
+Speedup(N) = 1 / (S + (1 - S) / N)
+```
  
-The cost crossover point sits roughly where vertical scaling moves you from a general-purpose instance to a memory-optimized or compute-optimized tier. At that point, you are paying a 20-40% premium per unit of resource. That is usually the signal to invest in horizontal architecture.
+Where `S` is the fraction of the program that is strictly serial and `N` is the number of processors. As `N` approaches infinity, the maximum speedup approaches `1/S`.
+ 
+The implication is brutal: a workload with just 5% serial code cannot be sped up by more than 20x, no matter how many cores you add. A workload with 20% serial code is capped at 5x. In practice, "serial" includes lock contention, single-threaded I/O paths, sequential log writes, and any coordination point that serializes concurrent operations.
  
 ```mermaid
-flowchart LR
-    A["Low traffic\n(single instance)"] -->|"cost-effective"| B["Vertical scaling\n(scale up instance size)"]
-    B -->|"hits premium tier\n(memory/compute optimized)"| C{"Crossover\npoint"}
-    C -->|"workload is stateless"| D["Horizontal scaling\n(add instances)"]
-    C -->|"workload is stateful\n(DB, coordination)"| E["Vertical + Read Replicas\nor sharding required"]
+xychart-beta
+    title "Amdahl's Law: Max Speedup vs. Core Count"
+    x-axis "Number of Cores" [1, 2, 4, 8, 16, 32, 64, 128]
+    y-axis "Maximum Speedup" 0 --> 25
+    line [1, 1.9, 3.5, 5.8, 8.9, 12.8, 17.2, 20.3]
+    line [1, 1.6, 2.5, 3.3, 3.8, 4.0, 4.0, 4.0]
 ```
-*Cost-driven decision path. The crossover point triggers architectural investment, not a hardware upgrade.*
+*Upper line: 1% serial fraction (approaches 100x cap). Lower line: 20% serial fraction (hard cap at 5x). Real workloads sit somewhere between these curves.*
  
-## Stateful Services: The Constraint That Changes Everything
+### The Universal Scalability Law
  
-Stateless services scale horizontally without coordination. Stateful services - databases, consensus participants, workflow engines, session stores - resist horizontal scaling because distributing state introduces consistency problems.
+Neil Gunther's **Universal Scalability Law (USL)** extends Amdahl's Law by adding a second penalty term for **coherency** — the overhead of keeping shared state consistent across multiple concurrent actors:
  
-A PostgreSQL primary can be scaled vertically almost indefinitely. When vertical limits are reached, horizontal options are constrained:
+```
+C(N) = N / (1 + α(N - 1) + βN(N - 1))
+```
  
-- **Read replicas** offload read traffic but do not help write throughput and introduce replication lag.
-- **Sharding** distributes write load but requires a routing layer, eliminates cross-shard transactions, and complicates schema migrations.
-- **Multi-primary replication** (e.g., Galera, CockroachDB, Spanner) distributes writes but introduces synchronous cross-node coordination on every write, which adds latency proportional to inter-node round-trip time.
-This is the core reason why most production architectures use **vertical scaling for the data tier** far longer than for the application tier. The operational and consistency cost of distributing state is frequently higher than the hardware cost of a larger database server.
+Where `α` is the contention parameter (serialization), `β` is the coherency parameter (crosstalk), and `N` is the number of concurrent workers. The coherency term `β` is quadratic in `N`, which means USL predicts that throughput can actually *decrease* as you add more concurrency, once coherency overhead dominates.
+ 
+This is not theoretical. PostgreSQL's throughput on a single instance plateaus and then decreases past a certain connection count because lock manager overhead and shared buffer cache coherency both have `β > 0`. Connection poolers like PgBouncer exist specifically to cap `N` below the USL coherency cliff. Redis is single-threaded for the same reason: eliminating `β` entirely by serializing all operations yields better throughput than a multi-threaded design with non-zero `β`.
  
 :::tip
-Before concluding that your database needs horizontal scaling, profile the workload. In the majority of cases, the bottleneck is a missing index, an N+1 query pattern, a missing cache layer, or connection pool exhaustion - not raw CPU or memory capacity. Fixing those is always cheaper than sharding.
+Measuring your workload's `α` and `β` parameters requires load testing with varying concurrency levels and fitting the USL curve to the data. Tools like `usl4j` (Java) or the R `usl` package automate the regression. If your throughput curve turns over and descends past a concurrency level you regularly reach in production, you have a coherency problem that more hardware will not fix.
 :::
  
-## The Auto-Scaling Boundary Problem
+### The Cost Curve Is Non-Linear
  
-Cloud auto-scaling (AWS Auto Scaling Groups, Kubernetes HPA) operates on horizontal scaling. It provisions new instances in response to CPU, memory, or custom metrics. The latency between a scaling trigger and a new instance serving traffic is typically 60-180 seconds, which covers gradual load increases but not sudden traffic spikes.
+Cloud instance pricing for vertical scaling is not linear. Moving from a 4-core to an 8-core instance doubles compute but roughly doubles price. Moving from a 96-core general-purpose instance to a 192-core high-memory instance can cost 4-6x more for 2x the core count, because the larger SKUs are less commoditized and carry a significant premium.
  
-The **cold start problem** compounds this: a new instance must fetch secrets, warm up connection pools, populate local caches, and complete health check registration before it can serve traffic. For JVM-based services, JIT compilation adds another 30-120 seconds of degraded throughput before the application reaches peak performance.
+The most expensive part of vertical scaling is the top end: the last doubling of capacity frequently costs 3-5x more than the previous doubling. There is a price/performance cliff around 48-64 vCPU instances on most cloud providers where general-purpose instances give way to memory-optimized or compute-optimized SKUs at premium prices. Bare-metal equivalents (required for NUMA-sensitive workloads) add another 40-80% premium on top.
  
-Vertical scaling has no cold start problem. When a workload has spiky, unpredictable traffic patterns and a cold start that takes longer than the spike duration, vertical scaling may be the operationally correct choice even if it appears wasteful at steady state.
+There is also a **single point of failure** cost that no pricing spreadsheet captures: a single large machine is a single failure domain. When it crashes, everything on it is unavailable. Hardware RAID, redundant power supplies, and hot-standby replicas reduce but do not eliminate this risk.
  
-:::danger
-Auto-scaling based on CPU utilization alone is a footgun for latency-sensitive services. A service can have 20% CPU utilization while being completely I/O-bound on database connections, at which point adding instances increases connection pool pressure without improving throughput. Always instrument and alert on the actual bottleneck resource, not a proxy metric.
+## Horizontal Scaling: The Physics of a Distributed System
+ 
+Horizontal scaling adds more machines and distributes the workload across them. It eliminates the single-point-of-failure problem, can scale to effectively arbitrary throughput, and uses commodity hardware at the cheap end of the price/performance curve. It introduces an entirely different category of problems in exchange.
+ 
+### The Network Is Now the Bottleneck
+ 
+On a single machine, inter-component communication is in-process function calls operating at ~1 ns. Horizontal scaling replaces those calls with network round trips. A same-rack round trip on a 10 GbE network is ~100 µs under unloaded conditions. Cross-AZ traffic within a cloud region adds 1-3 ms. Cross-region adds 30-300 ms depending on geography.
+ 
+These numbers dominate the performance profile of distributed systems. A single database query that takes 1 ms on local hardware takes 3-5 ms in a distributed configuration that requires network coordination, simply due to the latency of the round trips. Any operation that requires multiple sequential round trips — and most non-trivial database operations do — pays this cost multiplicatively.
+ 
+```mermaid
+flowchart LR
+    subgraph Single["Single Machine"]
+        direction TB
+        App1[Application] -->|function call ~1ns| DB1[Database Engine]
+    end
+    subgraph Distributed["Distributed (Same AZ)"]
+        direction TB
+        App2[Application Server] -->|TCP/IP ~100us| DB2[Database Node]
+    end
+    subgraph CrossAZ["Distributed (Cross-AZ)"]
+        direction TB
+        App3[Application Server\nAZ-1] -->|TCP/IP ~2ms| DB3[Database Node\nAZ-2]
+    end
+```
+*Latency increase from intra-process to intra-AZ to cross-AZ communication: five orders of magnitude.*
+ 
+### State Is the Enemy of Horizontal Scale
+ 
+**Stateless** components scale horizontally without coordination: add more instances behind a load balancer, and throughput increases linearly (modulo shared downstream dependencies). Any instance can handle any request. This is why HTTP application servers, API gateways, and compute workers scale horizontally so easily.
+ 
+**Stateful** components require that related requests reach the same instance, or that state be synchronized across instances. Both paths impose coordination overhead. Synchronizing state requires consensus protocols, replication lag management, and conflict resolution strategies. Sticky routing requires session affinity at the load balancer, which breaks when instances fail.
+ 
+The fundamental tension: **horizontal scaling of stateful systems is always a distributed systems problem**. It requires explicit decisions about consistency (what happens when two replicas disagree?), availability (what happens during a network partition?), and partition tolerance (how is state divided?). These are not engineering details — they are the defining characteristics of every distributed database, cache, and message broker ever built.
+ 
+:::caution
+"Just add more nodes" applied to a stateful service without rearchitecting the state management layer does not produce linear scale. It typically produces a distributed monolith: the operational complexity of a distributed system with the scaling properties of a single machine, because all nodes still serialize through a shared database.
 :::
  
-## The Hybrid Reality
+### Coordination Overhead Grows With Node Count
  
-Production systems rarely choose one strategy exclusively. The canonical pattern is:
+Every node added to a distributed system increases the communication overhead for operations that require coordination — leader election, distributed locking, quorum writes, two-phase commit, and gossip-based membership protocols. The worst case is O(N²) message complexity (all-to-all coordination), which is why large-scale systems use gossip protocols (O(N log N)) or hierarchical coordination (O(log N)) rather than full mesh coordination.
  
-- **Application tier:** Horizontal, stateless, auto-scaled. Instances are ephemeral and replaceable.
-- **Cache tier:** Horizontally partitioned (Redis Cluster, Memcached consistent hashing), vertically sized per node to minimize eviction rates.
-- **Database primary:** Vertically scaled as long as economically viable, with read replicas for read offload.
-- **Analytical / OLAP workloads:** Horizontally scaled across many small nodes (Spark, Presto, BigQuery Capacitor) because the embarrassingly parallel nature of analytical queries maps cleanly to horizontal architecture.
-The engineering cost of horizontal scaling is not a reason to avoid it - at sufficient scale it becomes unavoidable. The discipline is recognizing which tier is actually bottlenecked, what the true cost of each scaling strategy is at that tier, and whether you are solving a scaling problem or a code quality problem.
+This is the distributed systems equivalent of the USL coherency penalty: adding more nodes to a system with high coordination requirements eventually causes throughput to plateau or decrease. The Raft consensus algorithm, for example, requires a quorum of (N/2 + 1) nodes to acknowledge each write; as N grows, write latency increases because you must wait for more ACKs to arrive over the network.
+ 
+## The Scaling Decision Matrix
+ 
+Neither approach dominates in all scenarios. The decision is driven by workload characteristics, operational constraints, and cost tolerance.
+ 
+| Dimension | Vertical Scaling | Horizontal Scaling |
+|---|---|---|
+| **Complexity to implement** | Low — no code changes | High — requires stateless or distributed state design |
+| **Maximum throughput ceiling** | Hard physical limit (~192 cores, ~24 TB RAM on current hardware) | Effectively unbounded with correct sharding |
+| **Latency profile** | Low — in-process communication | Higher — network round trips add ~100 µs to ms per hop |
+| **Failure blast radius** | Total — single machine failure is total outage | Partial — N-1 machines survive any single node failure |
+| **Cost curve** | Linear to superlinear — premium for large SKUs | Linear — commodity hardware at consistent price/performance |
+| **State management** | Trivial — no distribution required | Complex — requires explicit consistency model |
+| **Operational overhead** | Low — one machine to manage | High — service discovery, health checking, distributed config |
+| **Suitable workloads** | Latency-sensitive, stateful, low-to-medium throughput | High-throughput, embarrassingly parallel, read-heavy with caching |
+ 
+## The Pragmatic Path: Scale Up First, Then Scale Out
+ 
+In practice, the most operationally sound strategy for early-stage systems is to scale vertically until the cost or physical limit forces a horizontal redesign. A well-configured single PostgreSQL server on a 32-core, 256 GB RAM machine with NVMe SSDs handles workloads that would surprise most engineers who have never measured it: 10,000-50,000 queries per second on a properly indexed read-heavy workload, with sub-millisecond 99th-percentile latency.
+ 
+The forcing function for horizontal scaling is not "big company uses microservices, therefore I should too." It is one or more concrete constraints:
+ 
+- **Throughput exceeds what a single machine can sustain**, even with all reasonable vertical options exhausted.
+- **Fault tolerance requirements** are incompatible with a single point of failure — an SLA that mandates 99.99% availability requires at least N+1 redundancy, which requires horizontal distribution.
+- **Geographic distribution** is required — users in multiple continents need sub-100ms latency, which no single datacenter can provide.
+- **Data volume exceeds single-machine storage** — active datasets larger than ~40 TB on a single NVMe-backed instance exceed practical vertical limits.
+- **Regulatory requirements** mandate data residency in specific jurisdictions, forcing geographic distribution.
+The mistake is making the horizontal scaling decision speculatively, before any of these constraints are real. A system designed for horizontal scale from day one carries all the distributed systems complexity — coordination protocols, eventual consistency handling, partial failure management — during the phase when development speed matters most and traffic is lowest.
+ 
+:::note
+The "diagonal" scaling pattern — scale up individual nodes while also scaling out the number of nodes — is used by systems like Kafka and Cassandra. Each broker/node is large (32-64 cores, high RAM, NVMe storage) to maximize single-node throughput and minimize coordination overhead, while the cluster as a whole scales horizontally by adding more such nodes. This approach gets the most out of both strategies.
+:::
+ 
+## Failure Modes Specific to Each Strategy
+ 
+**Vertical scaling failure modes:**
+- **Single-point-of-failure outage:** The machine crashes, the entire service is unavailable until it restarts or a standby is promoted. For database primaries, cold restart time can be minutes to hours on large instances due to InnoDB/PostgreSQL crash recovery and buffer pool warming.
+- **Resource saturation with no incremental relief:** When a vertical-scaled system reaches its capacity limit, there is no "add one more unit of capacity" option short of a full hardware upgrade, which typically requires maintenance downtime.
+- **NUMA-induced performance cliffs:** A workload that accidentally crosses NUMA boundaries can experience sudden performance degradation that looks like a software bug but is a hardware topology issue, diagnosable only with `numastat` and NUMA-aware profiling.
+**Horizontal scaling failure modes:**
+- **Partial failure states:** N nodes can be in N different states simultaneously — some up, some down, some partitioned, some returning stale data. Handling partial failures correctly is the fundamental engineering challenge of distributed systems.
+- **Thundering herd on node recovery:** When a node rejoins the cluster, other nodes may immediately attempt to synchronize state, transferring large amounts of data simultaneously. This can saturate network bandwidth and cause cascading load on the recovering node.
+- **Coordinator bottlenecks:** Any operation that requires centralized coordination (distributed locking, global sequence generation, single-leader writes) creates a bottleneck that does not scale horizontally. Systems designed with the assumption of "just add more nodes" often contain hidden coordinator singletons that become the actual scaling limit.
+- **Split-brain on network partition:** If a network partition isolates a subset of nodes, those nodes may continue accepting writes, creating divergent state that must be reconciled or discarded when the partition heals.
+See [Failure Models](/distributed-systems/en/foundations/system-models/failure-models/) for a systematic taxonomy of distributed system failure modes.
+See [The 8 Fallacies of Distributed Computing](/distributed-systems/en/foundations/monoliths-to-distributed/eight-fallacies/) for the assumptions that break when moving from vertical to horizontal scale.
