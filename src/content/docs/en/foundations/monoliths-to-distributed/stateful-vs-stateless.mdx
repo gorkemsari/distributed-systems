@@ -1,222 +1,209 @@
 ---
 title: "1.1.3. Stateful vs. Stateless Services: When to Use Which"
-description: "A mechanistic examination of what state actually means in distributed services, the operational and consistency costs each model imposes, and the architectural conditions under which stateful design becomes unavoidable."
-lastUpdated: 2026-05-02
+description: "A precise analysis of what state actually means in distributed systems, the operational asymmetry between stateful and stateless designs, and the specific conditions that justify each approach."
+lastUpdated: 2026-05-13
 sidebar:
   order: 3
 ---
 
-The stateless/stateful distinction is not a binary property of a service — it is a question of *where* state lives and *who* is responsible for its consistency. Every service that does meaningful work touches state somewhere. The architectural choice is whether that state is owned locally by the service instance or externalized to shared infrastructure, and that choice cascades into every decision about deployment, failure recovery, scaling, and correctness.
-
-## What State Actually Means
-
-**State** is any data whose value at time *T+1* depends on operations performed before *T*. It comes in several distinct forms that are often conflated:
-
-- **Request state** — data that exists only for the duration of a single request/response cycle. An HTTP request body, a parsed query object, a temporary computation buffer. This is never the source of stateful vs. stateless debate.
-- **Session state** — data that persists across multiple requests from the same client: authentication tokens, shopping cart contents, wizard step progress, in-flight multi-step transactions.
-- **Resource state** — durable domain data: user records, order history, account balances, inventory counts. This always lives in persistent storage; the question is which service owns it.
-- **Computational state** — intermediate results of long-running processing: Spark task progress, stream processing consumer offsets, saga orchestration step, workflow execution position.
-- **Membership state** — knowledge of which peers exist in a cluster, their health, and their roles. Used by consensus algorithms, gossip protocols, service registries.
-A **stateless service** holds no state beyond the current request. Given the same inputs and external dependencies, it produces the same output regardless of which instance handles the request and regardless of prior requests. A **stateful service** maintains state that affects future behavior — either in memory, on local disk, or in a component it owns exclusively.
-
-:::note
-"Stateless" as commonly used in microservices architecture means *instance-stateless*: the service instances themselves are interchangeable. The service as a whole is not stateless — it reads and writes state via external dependencies (databases, caches, queues). This distinction matters because the consistency guarantees of those external dependencies become *your* consistency guarantees.
-:::
-
-## The Stateless Service Model: Mechanics and Constraints
-
-A stateless service instance can be replaced, duplicated, or terminated at any point without affecting correctness. Every instance operates identically given the same request and the same state of its external dependencies.
-
-```mermaid
-flowchart LR
-    C[Client] --> LB[Load Balancer]
-    LB --> I1[Instance 1]
-    LB --> I2[Instance 2]
-    LB --> I3[Instance 3]
-    I1 & I2 & I3 --> EXT[(External State\nDB / Cache / Queue)]
-```
-*Stateless instances are interchangeable. Any instance handles any request; all durable state lives in shared external infrastructure.*
-
-This model buys three operational properties:
-
-**Horizontal scalability without coordination.** Adding an instance requires no data migration, no rebalancing, no membership reconfiguration. The load balancer begins routing to the new instance after a health check passes.
-
-**Trivial failure recovery.** When an instance dies, in-flight requests fail and are retried (if the client implements retries) or dropped. No state is lost because no state was held locally. The replacement instance starts cold with no recovery procedure.
-
-**Deployment simplicity.** Rolling deployments, canary releases, and blue/green cutover all work cleanly because instances carry no state that must be migrated or versioned during the transition.
-
-The constraints are equally concrete:
-
-**External state becomes the bottleneck.** Every piece of state that the application tier externalizes becomes a request to shared infrastructure. A stateless authentication service that validates JWTs against a database on every request has replaced local state with a network round-trip on the critical path. The instance is stateless; the *system* latency is not.
-
-**Consistency is delegated, not eliminated.** A stateless service reading from a PostgreSQL read replica that is 200ms behind the primary will return stale data. The service cannot distinguish stale from fresh without querying the primary — which negates the read offload benefit. Statelessness moves the consistency question to the external dependency; it does not answer it.
-
-**Session affinity is a trap.** Load balancers support sticky sessions (routing a client consistently to the same instance based on a cookie or IP hash). This is a crutch that converts a nominally stateless service into a de facto stateful one without the operational properties that stateful design provides. Sticky session instances become single points of failure; if the pinned instance dies, the session is lost anyway. The correct solution is to externalize the session state — not to pretend stickiness makes instances equivalent.
-
-```go
-// Wrong: storing session in instance memory
-var sessions = map[string]*Session{}
-
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-    sessionID := r.Cookie("session_id")
-    sess := sessions[sessionID.Value] // fails on any other instance
-    // ...
-}
-
-// Correct: session lives in Redis, instance is stateless
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-    sessionID, err := r.Cookie("session_id")
-    if err != nil {
-        http.Error(w, "missing session", http.StatusUnauthorized)
-        return
-    }
-
-    ctx := r.Context()
-    sess, err := sessionStore.Get(ctx, sessionID.Value)
-    if err != nil {
-        // Redis unavailable or session expired -- handle explicitly
-        http.Error(w, "session unavailable", http.StatusServiceUnavailable)
-        return
-    }
-    // any instance can now serve this request
-}
-```
-
-## The Stateful Service Model: When Local State Is the Right Answer
-
-Stateful services hold state directly: in process memory, on locally attached disks, or in a component they own exclusively (a database that only one service writes to). This introduces coordination costs but eliminates the latency and consistency penalties of externalizing everything.
-
-The cases where stateful design is architecturally correct — not just convenient:
-
-**1. Stream processing with large operator state.** A Flink job computing a 7-day rolling average over a 10TB event stream maintains state (partial aggregations, windowed buffers, watermarks) that is too large to externalize without prohibitive I/O cost. The state is colocated with the computation because externalizing it would require reading and writing gigabytes per operator per second. Flink's RocksDB state backend stores this state on the task manager's local NVMe, checkpointing snapshots to object storage asynchronously for fault tolerance.
-
-**2. Consensus participants.** Raft nodes, ZooKeeper ensemble members, and etcd peers maintain a replicated log that *is* their state. These services are inherently stateful — the correctness guarantee of the consensus algorithm depends on the durability and ordering of the local log. You cannot externalize a Raft participant's log to a shared database without breaking the invariants the algorithm relies on.
-
-**3. Databases and storage engines.** A PostgreSQL primary owns its WAL, its buffer pool, its index structures. A Redis instance owns its keyspace. These are definitionally stateful services. The entire value proposition of a storage engine is that it manages state with specific durability, indexing, and query semantics.
-
-**4. Actors and entity-based processing.** Frameworks like Akka, Orleans, and Temporal Workflow maintain per-entity state in memory with a persistence model behind them. An `OrderActor` that holds current order state in memory and persists changes to a journal provides serialized access to order state without requiring a distributed lock on every operation. This is only correct when the entity is pinned to one actor/process — which requires stateful placement.
-
-**5. Local caching for read-heavy, tolerance-for-staleness workloads.** A service that caches product catalog data in process memory avoids the network round-trip to Redis on every render. The tradeoff is stale reads during the TTL window. For workloads where eventual consistency on catalog data is acceptable and read volume is extremely high (millions of req/s), local cache eliminates the caching tier as a bottleneck entirely.
-
+The distinction between stateful and stateless services is frequently presented as binary and obvious. It is neither. State exists on a spectrum — from ephemeral per-request computation to durable data that must survive any number of failures — and a design choice that is correct for one type of state is actively harmful for another. The question "is this service stateful?" is less useful than "what *kind* of state does this service hold, what are the consequences of losing it, and who is responsible for that state's durability?"
+ 
+## What State Actually Is
+ 
+"State" in a distributed systems context means any data that a service instance holds which affects how it responds to future requests. This is broader than it first appears, and conflating different categories of state leads to design errors.
+ 
+**Per-request ephemeral state** is computation in flight: variables on the stack, objects in heap during a request, partial results being assembled. Every service holds this; it is destroyed at request completion and has no bearing on the stateful/stateless distinction.
+ 
+**Connection state** is the protocol negotiation overhead that must be amortized across multiple requests: TCP handshake, TLS session establishment, database authentication and authorization, HTTP/2 stream multiplexing. A service that holds open database connections is holding connection state, even if it considers itself stateless in the application sense. This state is expensive to reconstruct (~50-200 ms per new database connection including TLS and authentication) and is the reason connection poolers exist.
+ 
+**Session state** is application-level context accumulated across multiple requests from the same client: authentication tokens, shopping cart contents, wizard step progress, partial form submissions. This is the state that causes the most operational problems in distributed systems because it is too large and too client-specific to encode in every request, yet too ephemeral to justify durable storage.
+ 
+**Computational cache state** is derived data: precomputed aggregates, hot query result caches, in-memory lookup tables built at startup. This state can be rebuilt from authoritative sources but at non-trivial cost — a service that loses its in-memory cache and must refill it from a database may be briefly slow but is not incorrect.
+ 
+**Durable application state** is the source-of-truth data that the system exists to manage: account balances, order records, user profiles, event logs. This state must never be lost to a service restart and is almost always stored in an external persistence system. Whether that system is a database, an object store, or an event log is an implementation detail; the requirement that it survives any single component failure is not.
+ 
 ```mermaid
 flowchart TD
-    subgraph StatefulService["Stateful Service (Actor Model)"]
-        A1["Actor: Order-8821\n[state in memory]"]
-        A2["Actor: Order-9043\n[state in memory]"]
-        A3["Actor: Order-7710\n[state in memory]"]
-    end
-    J[Journal / Event Store] 
-    A1 & A2 & A3 -->|"persist state changes"| J
-    A1 & A2 & A3 -->|"recover from"| J
+    S[State Categories] --> A[Per-request ephemeral\nDestroyed on request completion\nNever a concern]
+    S --> B[Connection state\nTCP/TLS/DB connections\nExpensive to rebuild: 50-200ms]
+    S --> C[Session state\nCross-request client context\nProblematic to distribute]
+    S --> D[Computational cache\nDerived, rebuildable\nCost: cache warmup latency]
+    S --> E[Durable application state\nSource of truth\nMust survive any failure]
+ 
+    style A fill:#27ae60,color:#fff
+    style B fill:#f39c12,color:#fff
+    style C fill:#e67e22,color:#fff
+    style D fill:#f39c12,color:#fff
+    style E fill:#c0392b,color:#fff
 ```
-*Actor-based stateful service: each entity's state lives in a dedicated actor. Serialized access per actor eliminates distributed locking. The journal provides durability and recovery.*
-
-## Operational Cost of Each Model
-
-Stateless services impose operational costs on the shared infrastructure they depend on. Stateful services impose operational costs on the services themselves.
-
-| Dimension | Stateless | Stateful |
+*State categories by consequence of loss: green is safe to lose, orange is recoverable with cost, red must never be lost.*
+ 
+## Why Stateless Services Scale
+ 
+A service is effectively stateless when any instance can handle any request without coordination with peer instances. The precise technical requirement is **no mutable shared state between instances**. An instance may hold read-only configuration, local in-memory caches that can be rebuilt, or ephemeral per-request state — none of these violate the stateless contract.
+ 
+The scaling advantages of this design are mechanical, not aspirational.
+ 
+**Load balancing is unconditional.** Any request can go to any instance. Round-robin, least-connections, random — any algorithm works because there is no routing constraint. Adding capacity means adding instances and registering them with the load balancer. No data migration, no rebalancing, no coordination.
+ 
+**Failure recovery is immediate.** When an instance crashes, its in-flight requests fail, but no persistent state is lost. A replacement instance starts cold and is immediately capable of serving any request. Recovery time is the time to start a new process and pass a health check — typically seconds. Compare this to a stateful service where recovery involves replaying a write-ahead log, populating a cache, re-establishing connections, or waiting for replication to catch up.
+ 
+**Deployments are zero-risk.** Rolling updates of stateless services are trivially safe: bring up new instances, shift traffic, drain old instances. Canary deployments reduce blast radius to a percentage of traffic. Blue/green switches are instantaneous. No migration scripts, no schema changes, no in-flight state to drain.
+ 
+**Auto-scaling works correctly.** Scale-in events — removing instances during low traffic — are safe because instances carry no unique state. A stateful service that is scaled in loses whatever state was local to the removed instances.
+ 
+:::tip
+The strictest definition of stateless is a service that could be replaced mid-request — where a proxy could send the first half of a request to one instance and the second half to another — and produce correct results. Almost nothing meets this standard, but it is a useful mental model for identifying where state is actually being held.
+:::
+ 
+## The Illusion: Stateless Services Still Depend on Stateful Backends
+ 
+Statelessness does not eliminate state. It relocates it. Every stateless HTTP API service depends on stateful backends: relational databases, key-value stores, object storage, message queues. The state does not go away; it gets pushed to components explicitly designed to manage it durably and consistently.
+ 
+This three-tier model — stateless compute layer over stateful storage layer — is the dominant architecture of web-scale systems. The compute layer scales horizontally and trivially because all its state is externalized. The storage layer carries all the distributed systems complexity: replication, consistency guarantees, partition tolerance, failover. The distinction between "easy to scale" (stateless compute) and "hard to scale" (stateful storage) is not a coincidence — it is the entire point.
+ 
+```mermaid
+flowchart LR
+    LB[Load Balancer] --> A1[API Instance 1\nstateless]
+    LB --> A2[API Instance 2\nstateless]
+    LB --> A3[API Instance 3\nstateless]
+ 
+    A1 & A2 & A3 -->|reads + writes| DB[(Primary DB\nstateful)]
+    A1 & A2 & A3 -->|reads| DR[(Read Replica\nstateful)]
+    A1 & A2 & A3 -->|session lookup| Cache[(Redis\nstateful)]
+    A1 & A2 & A3 -->|async events| MQ[(Message Queue\nstateful)]
+```
+*Stateless compute over stateful storage: horizontal scaling is trivial for the compute tier because all persistent state is externalized to components designed to manage it.*
+ 
+The consequence is that scaling a stateless service requires the storage tier to absorb increased load. A stateless API service scaled from 3 to 30 instances delivers 10x more requests to the database. If the database cannot absorb that load, the stateless compute tier is irrelevant. **The scaling ceiling of a stateless service is set by its stateful dependencies, not by the stateless instances themselves.**
+ 
+## Session State: The Most Common Design Error
+ 
+Session state — information accumulated across multiple requests from a single client — is the category most likely to be handled incorrectly in a service that claims to be stateless.
+ 
+The naive implementation stores session data in instance-local memory (a `HashMap<SessionId, SessionData>` in Java, a module-level `dict` in Python). This works perfectly with a single instance. With multiple instances it fails silently: requests routed to different instances see no session context, producing authentication failures, lost cart contents, or corrupted wizard state.
+ 
+The two common responses to this are both architecturally significant.
+ 
+**Sticky sessions (session affinity)** configure the load balancer to route all requests from a given client to the same instance, typically using a cookie or IP hash. This restores correctness but re-introduces statefulness at the infrastructure level. When that instance fails or is removed, all of its sessions are lost simultaneously — a correlated failure that affects many users at once rather than distributing failure probability across the fleet. During deployments, sticky sessions make rolling updates complicated: draining an instance means waiting for all sticky sessions to time out, potentially holding up deployments for hours.
+ 
+**Externalized session state** moves session data to a shared store — Redis, Memcached, a database table — that any instance can read. Session lookup adds one network round trip (~0.5-1 ms for a local Redis) to every request that requires session context. This is the correct architectural solution: sessions survive instance failure, routing is unconstrained, deployments are clean.
+ 
+A more radical variant is **encoding session state directly in the client** via signed tokens. JWTs (JSON Web Tokens) carry session claims in a cryptographically signed payload that the server can verify without any storage lookup. The advantages are real: zero backend infrastructure for session storage, no session lookup latency, works naturally with CDNs and edge computing. The limitations are equally real: tokens cannot be invalidated server-side before expiry (a fundamental security limitation), payload size is transmitted on every request, and sensitive claims in the payload are visible to anyone who intercepts the token (mitigated but not eliminated by encryption).
+ 
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant LB as Load Balancer
+    participant A1 as Instance 1
+    participant A2 as Instance 2
+    participant R as Redis
+ 
+    C->>LB: POST /login
+    LB->>A1: route to instance 1
+    A1->>R: SET session:abc123 {userId, roles, ...}
+    A1-->>C: Set-Cookie: sessionId=abc123
+ 
+    C->>LB: GET /dashboard (Cookie: sessionId=abc123)
+    LB->>A2: route to instance 2 (different from before)
+    A2->>R: GET session:abc123
+    R-->>A2: {userId, roles, ...}
+    A2-->>C: 200 OK -- session found regardless of instance
+```
+*Externalized session state: instance 2 serves a request using session data created by instance 1, with no sticky routing required.*
+ 
+## Stateful Services: When They Are the Right Answer
+ 
+Statefulness is not a design flaw to be eliminated. It is a requirement for specific categories of workloads where the cost of externalizing state exceeds the benefit, or where the access patterns make external state coordination physically infeasible.
+ 
+**In-memory databases and caches.** Redis, Memcached, VoltDB, and similar systems exist specifically because some workloads need state access at memory speeds — sub-millisecond latency that no network round trip to external storage can provide. The statefulness is the product: these systems are valuable precisely because they hold data close to compute. Designing them as stateless would be incoherent.
+ 
+**Database connection poolers.** PgBouncer, ProxySQL, and similar tools hold stateful connection pools: authenticated, negotiated connections to database backends that would cost 50-200 ms each to re-establish. They are stateful proxies that convert many stateless application connections into a smaller pool of persistent backend connections. Their statefulness is an explicit performance optimization.
+ 
+**Stream processing with accumulated state.** A Kafka Streams application that computes a rolling 5-minute count of events per user must maintain a state store that accumulates values across messages. This state store is local to the processing instance — for performance — but is typically persisted to a changelog topic for durability. The stateful design is not optional; the computation *is* the accumulated state.
+ 
+**Long-lived protocol connections.** WebSocket servers, game servers, XMPP messaging servers, and video conferencing servers hold per-connection state: authentication context, subscription lists, sequence numbers, media negotiation state. This state cannot be externalized without adding a network hop to every message, which often breaks latency requirements for real-time protocols. These systems are correctly designed as stateful with sticky routing to specific instances.
+ 
+**ML model serving with warmup cost.** Large language model inference servers, recommendation engines, and similar systems spend significant time loading model weights into GPU/CPU memory. A "stateless" design that loaded and unloaded model weights per request would be unusable. The warm model state is worth preserving across requests, making these services intentionally stateful with respect to their in-memory model.
+ 
+:::note
+The Kubernetes distinction between `Deployment` (stateless) and `StatefulSet` (stateful) captures this operational asymmetry precisely. A `Deployment` pod gets a random name (`api-xyz12`) and can be killed and replaced arbitrarily. A `StatefulSet` pod gets a stable ordinal identity (`kafka-0`, `kafka-1`), stable network hostnames, and ordered startup/shutdown semantics. These are not cosmetic differences — they are the operational primitives required to manage replicated state correctly.
+:::
+ 
+## The Operational Asymmetry: Kill vs. Drain
+ 
+The single most consequential difference between stateful and stateless services is the operational response to any lifecycle event: deployments, scaling events, failures, and maintenance.
+ 
+**Stateless lifecycle: kill and replace.** A stateless instance can be terminated at any point with no coordination. In-flight requests fail and are retried by clients or proxied. The instance is replaced immediately. No state is lost because no unique state exists on that instance.
+ 
+**Stateful lifecycle: drain, snapshot, restore.** A stateful instance must be drained before termination: existing connections or sessions must be migrated or allowed to complete, in-memory state must be checkpointed or replicated to peers, and the replacement instance must either recover from the checkpoint or catch up via replication before serving traffic. This process can take seconds to hours depending on the amount of state involved.
+ 
+| Event | Stateless service | Stateful service |
 |---|---|---|
-| **Horizontal scaling** | Trivial — add instances | Complex — data migration, rebalancing, or sharding required |
-| **Failure recovery** | Replace instance; no data recovery needed | Must recover state: restore snapshot, replay log, rejoin cluster |
-| **Deployment** | Rolling/canary with no migration | May require quorum awareness, leader election, coordinated drain |
-| **Consistency** | Delegated to external dependencies | Owned locally; complexity scales with replication requirements |
-| **Latency** | Adds network RTT for every state access | In-process state access is nanoseconds; no network on hot path |
-| **Memory pressure** | Bounded by single request working set | Unbounded if state grows without eviction policy |
-| **Blast radius of instance failure** | Zero state loss; in-flight requests fail | In-memory state lost unless persisted; requires durability design |
-| **Testing** | Simple — instances are deterministic given inputs | Complex — must test state recovery, replication lag, split-brain |
-
-## The Durability Contract: What Stateful Services Must Guarantee
-
-A stateful service that holds state in memory without a durability mechanism is a liability, not an asset. Any process restart — planned or unplanned — erases all in-memory state. The durability contract for a stateful service must be explicit:
-
-**Synchronous durability** — state is written to durable storage before the operation is acknowledged. Guarantees zero data loss on crash. Adds write latency proportional to storage I/O (typically 0.1–2ms for NVMe, 0.5–5ms for network-attached block storage).
-
-**Asynchronous durability** — state is written to durable storage in the background after acknowledgment. Lower write latency but a defined window of potential data loss (the **RPO**, Recovery Point Objective) equal to the flush interval.
-
-**Checkpoint-based durability** — used by stream processors (Flink, Spark Streaming). State is snapshotted to durable object storage at configurable intervals. Recovery replays events from the last checkpoint. RPO equals the checkpoint interval; recovery time depends on checkpoint size and replay throughput.
-
-```yaml
-# Flink stateful stream processor: checkpoint configuration
-execution:
-  checkpointing:
-    interval: 30s              # RPO: up to 30s of reprocessed events on recovery
-    mode: EXACTLY_ONCE
-    min-pause: 10s
-    timeout: 10m
-    externalized-checkpoints:
-      cleanup-mode: RETAIN_ON_CANCELLATION
-
-state:
-  backend: rocksdb             # NVMe-backed; handles state larger than heap
-  incremental: true            # only changed state blocks are checkpointed
-  checkpoints-dir: s3://your-bucket/flink-checkpoints
-```
-
-:::caution
-Stateful services that do not document their durability contract — specifically their RPO and RTO (Recovery Time Objective) — are not production-ready. The question "what happens to your state when this instance dies?" must have a precise answer, not "we'll figure it out when it happens." Failure to define this upfront produces data loss incidents that are difficult to detect (silent state corruption) and impossible to recover from retroactively.
-:::
-
-## The Placement Problem: Stateful Services and Infrastructure
-
-Stateless services are placement-agnostic — the scheduler can put them anywhere. Stateful services have placement constraints that interact with the underlying infrastructure in ways that compound operational complexity.
-
-**Local disk affinity.** A stateful service using NVMe-backed local storage cannot be freely rescheduled. When Kubernetes evicts a pod with local state, that state is gone unless the service has a recovery mechanism. `StatefulSet` with `volumeClaimTemplates` binds a pod to a `PersistentVolume`, constraining it to nodes where that volume is accessible — which may conflict with cluster rebalancing.
-
-**Network identity.** Stateless pods are anonymous. Stateful services often need stable network identities so that peers, clients, and configuration can address them consistently. Kubernetes `StatefulSet` provides stable DNS names (`pod-0.service.namespace.svc.cluster.local`) precisely for this reason.
-
-**Ordered deployment and shutdown.** Stateless services can be deployed and terminated in any order. Stateful services frequently have ordering requirements: a Kafka broker must complete leader rebalancing before shutdown; a database replica must catch up before promotion. Kubernetes `StatefulSet` handles ordered rollout (`pod-0` before `pod-1` before `pod-2`) but requires services to implement graceful shutdown hooks that respect those semantics.
-
-```yaml
-# StatefulSet for a stateful service with stable identity and persistent storage
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: order-processor
-spec:
-  serviceName: order-processor   # creates stable DNS per pod
-  replicas: 3
-  podManagementPolicy: OrderedReady  # pod-0 ready before pod-1 starts
-  template:
-    spec:
-      terminationGracePeriodSeconds: 120  # time to flush state and drain
-      containers:
-        - name: order-processor
-          image: order-processor:v2.4.1
-          lifecycle:
-            preStop:
-              exec:
-                command: ["/bin/sh", "-c", "kill -SIGTERM 1 && sleep 90"]
-          volumeMounts:
-            - name: state-volume
-              mountPath: /var/lib/order-processor/state
-  volumeClaimTemplates:
-    - metadata:
-        name: state-volume
-      spec:
-        accessModes: [ReadWriteOnce]
-        storageClassName: premium-ssd
-        resources:
-          requests:
-            storage: 100Gi
-```
-
-## Decision Criteria: Which Model to Choose
-
-The choice is not "prefer stateless" as a blanket rule. It is a function of what the state is, how large it is, how frequently it is accessed, and what consistency guarantees the workload requires.
-
-**Use stateless when:**
-- State naturally fits in an external database or cache with acceptable latency for your SLO
-- The workload requires elastic scaling in response to traffic spikes
-- Team size or operational maturity does not support the failure recovery complexity of stateful services
-- Requests are independent — no dependency on prior request outcomes held in memory
-**Use stateful when:**
-- State is too large or too frequently accessed to externalize without violating latency SLOs
-- The correctness guarantee depends on serialized, in-process access to state (actor model, consensus participant)
-- You are building infrastructure — a database, a queue, a stream processor — where owning state is the service's primary function
-- Cross-network consistency overhead for state access would dominate request latency
+| **Instance crash** | Replace immediately, no data loss | Detect, elect new primary or restore from replica, potential data loss window |
+| **Rolling deployment** | Shift traffic, drain, terminate, no ceremony | Pause writes or use replication failover, validate state consistency post-deploy |
+| **Scale-in** | Terminate any instance safely | Drain connections, migrate partitions, rebalance load |
+| **Scale-out** | Start new instances, register, serve | Start new instance, bootstrap state (snapshot transfer, log replay), warm up |
+| **Recovery time** | Seconds (process startup + health check) | Seconds to minutes (state recovery) to hours (large snapshot replay) |
+ 
+This asymmetry has deep implications for SLO (Service Level Objective) design. A stateless service can credibly commit to recovery times measured in seconds. A stateful service must account for state recovery time in its RTO (Recovery Time Objective), and that recovery time grows with data volume in a way that is often non-obvious until the first production failure.
+ 
+## Anti-Patterns That Create Accidental Statefulness
+ 
+Statefulness often enters a service not by design but through implementation choices that seem reasonable in isolation.
+ 
+**Local in-memory caches without external backing.** A service that builds a lookup table at startup by reading from a database and stores it in a module-level variable is stateful with respect to that cache. If the service was scaled out to five instances and the underlying data changes, five different cache states exist simultaneously — a split-brain cache. Requests routed to different instances return different results. The fix is either a shared external cache or a cache invalidation mechanism (TTL, event-driven invalidation) that keeps all instances consistent.
+ 
+**Local file system usage.** A service that writes temporary files, uploads, or processing artifacts to the local filesystem is stateful with respect to those files. When the instance is replaced, the files are gone. When the service scales to multiple instances, each instance has a different filesystem view. Kubernetes makes this explicit: pods lose their local filesystem on restart unless a `PersistentVolumeClaim` is attached — and attaching persistent volumes reintroduces StatefulSet semantics.
+ 
+**Hardcoded outbound connections.** A service that opens a single connection to a database at startup and holds it in a global variable is stateful with respect to that connection. When the database connection drops and the service attempts to reconnect, the reconnection logic may fail under load. Connection pool libraries (HikariCP, `database/sql` in Go, SQLAlchemy) exist to manage this state correctly, with health checking, reconnection backoff, and pool sizing.
+ 
+**Accumulated metrics or state in application memory.** Prometheus counters, rate limiters implemented as in-memory token buckets, circuit breaker state, and retry budgets — all of these accumulate state in application memory. When an instance restarts, they reset to zero. For most metrics this is acceptable (the Prometheus scrape will briefly show a counter reset). For circuit breakers and rate limiters, a reset can cause a briefly unsafe state: a rate limiter that just restarted has full budget and may allow a burst that the cluster-level budget has already consumed.
+ 
 :::danger
-The distributed monolith anti-pattern most commonly emerges when teams attempt to make inherently stateful operations look stateless by externalizing them to a shared database that all services write to. This produces the worst of both models: the deployment complexity of distributed services combined with a shared global state layer that serializes writes, propagates schema changes as global coordination events, and becomes the single point of failure the distribution was meant to eliminate. Database-per-service exists precisely to prevent this.
+A service with a local in-memory rate limiter deployed across 10 instances provides 10x the intended rate limit, because each instance enforces the limit independently. A burst that hits different instances in round-robin fashion will be allowed by each instance up to its local limit, summing to 10x the intended global limit. Rate limiting that must enforce a global constraint must be implemented in a shared external store — Redis is the canonical choice — not in instance-local memory.
 :::
-
-The irreversible commitment in this decision is not the initial choice — it is the accumulation of dependent design decisions that follow. A service designed as stateless that grows session-affinity hacks, local caches with no invalidation strategy, and undocumented in-memory queues has become stateful without gaining any of the operational rigor stateful design demands. Audit what your service *actually* holds in memory before concluding it is stateless.
+ 
+## Designing the Boundary: Where to Put State
+ 
+The practical design question is not "should my service be stateless?" but "at which layer in the stack should each type of state live?"
+ 
+**Externalize session state** to a purpose-built session store with appropriate TTLs. Redis with automatic key expiry is the standard choice. Keep session payloads small — store only identity and permissions, not arbitrary application context.
+ 
+**Externalize coordination state** — distributed locks, leader election records, configuration that must be consistent across instances — to a dedicated coordination service. etcd, ZooKeeper, and Consul are purpose-built for this. Do not implement distributed coordination in a shared database table unless you understand the locking semantics precisely.
+ 
+**Keep computational caches local but treat them as rebuild-able.** An in-memory cache that can be rebuilt from authoritative data within an acceptable latency budget does not need to be externalized. The service is stateless with respect to its observable behavior even if it holds local cache state.
+ 
+**Accept stateful design explicitly for stateful workloads.** If the access pattern requires sub-millisecond latency to accumulated state (stream processing, in-memory databases), or if connection setup costs are amortized across many requests (database proxies, connection poolers), design for statefulness explicitly: stable identities, ordered lifecycle, snapshot-based recovery, and replication.
+ 
+```mermaid
+flowchart TD
+    Q1{Can any instance serve\nany request correctly?}
+    Q1 -->|yes| Stateless[Stateless design\nSimple scaling, cheap recovery]
+    Q1 -->|no| Q2{Why not?}
+    Q2 -->|session context required| Q3{Can session be\nexternalized?}
+    Q3 -->|yes, latency acceptable| ExternalSession[Externalize to Redis/cookie\nStateless with external session store]
+    Q3 -->|no, latency too high\nor real-time protocol| StickyStateful[Stateful with sticky routing\nAccept correlated failure risk]
+    Q2 -->|accumulated state required\nfor correctness| TrueStateful[True stateful design\nStatefulSet, snapshot recovery,\nreplication, explicit RTO]
+    Q2 -->|in-memory performance\nrequired| TrueStateful
+```
+*Decision flow for the stateful vs. stateless boundary: session externalization recovers most of the benefits of stateless design for the most common cases.*
+ 
+## Measuring the Impact: Latency Budget for State Operations
+ 
+State location directly determines the latency budget available for serving a request. Instrumenting these numbers in production is the only reliable way to know whether an externalized state design is meeting its SLOs.
+ 
+| State location | Typical access latency | Suitable for |
+|---|---|---|
+| CPU register / L1 cache | < 1 ns | Per-request ephemeral computation |
+| L3 cache / local heap | ~20-40 ns | Local in-memory cache, connection pool objects |
+| Local NVMe SSD | ~20-100 µs | Write-ahead log, local checkpoint files |
+| Same-rack Redis (pipeline) | ~0.1-0.5 ms | Session state, distributed locks, rate limiter tokens |
+| Same-AZ database read | ~1-5 ms | Durable application state, strong consistency reads |
+| Cross-AZ database read | ~5-15 ms | Replicated state with AZ fault tolerance |
+| Cross-region read | ~50-300 ms | Geo-distributed data, eventual consistency acceptable |
+ 
+A service with a target P99 latency of 10 ms has a budget of roughly 10 ms to spend across all I/O operations in a request. If session state lookup (0.5 ms) + a primary database read (3 ms) + a Redis cache check (0.3 ms) + internal processing (2 ms) = 5.8 ms, there is margin. If the same service makes three sequential database reads (3 ms × 3 = 9 ms), there is almost none. State location is not a theoretical concern — it directly determines whether an SLO is achievable.
+ 
+See [Replication Strategies](/distributed-systems/en/data-management/replication/) for how stateful services manage state durability across failures.
+See [Distributed Caching](/distributed-systems/en/data-management/distributed-caching/) for the specific patterns used to externalize computational cache state at scale.
