@@ -1,220 +1,380 @@
 ---
 title: "1.2.2. Failure Models: Crash-Stop, Crash-Recovery, Omission"
-description: "A precise taxonomy of how distributed system components fail, covering crash-stop, crash-recovery, omission, and performance failures, with the detection strategies and algorithmic implications each model imposes."
-lastUpdated: 2026-05-06
+description: "A rigorous taxonomy of the crash-stop, crash-recovery, and omission failure models, covering their formal definitions, the algorithmic implications of each, and how real systems map onto these abstractions."
+lastUpdated: 2026-05-13
 sidebar:
   order: 2
 ---
 
-Distributed systems algorithms are not designed against a single notion of failure. They are designed against a specific **failure model**: a formal characterization of how processes and communication channels can deviate from correct behavior. The failure model determines what guarantees an algorithm can provide, what recovery mechanisms are necessary, and what detection infrastructure must exist beneath it.
+Distributed systems fail constantly, but not all failures are equivalent. A process that halts permanently presents a fundamentally different challenge than one that halts and restarts with partial memory, and both differ from a process that continues executing while selectively dropping messages. These distinctions are not taxonomic pedantry — the failure model a system tolerates determines the algorithms available to it, the safety properties it can guarantee, and the operational response required when failure occurs.
  
-Choosing the wrong failure model for your system -- assuming crash-stop behavior in a network that actually exhibits Byzantine faults, for example -- produces algorithms that are correct in theory and catastrophically wrong in practice. The taxonomy below moves from weakest to strongest, where strength means the model captures more ways things can go wrong.
+Failure models form a strict hierarchy by the strength of their assumptions. Weaker assumptions (more failure modes tolerated) require more complex algorithms and provide stronger real-world guarantees. Stronger assumptions (fewer failure modes tolerated) enable simpler algorithms but break when reality violates the assumption. Most catastrophic production incidents happen exactly at this boundary: systems designed for the simpler failure model encountering a failure that belongs to a harder one.
  
-## Crash-Stop Failures
+## Crash-Stop (Fail-Stop) Failures
  
-In the **crash-stop** (also called **fail-stop**) model, a process operates correctly until it halts permanently. Once stopped, it takes no further actions, sends no further messages, and never resumes. Other processes may eventually detect the crash through timeout or heartbeat failure.
+The **crash-stop** model, also called **fail-stop**, is the simplest and most benign failure model. A process in this model:
  
-This is the simplest failure model and the one most distributed algorithms target first. Its defining property is **permanence**: a crashed process stays crashed. There is no ambiguity about whether a silent process has failed or is merely slow.
+1. Operates correctly until some moment `t`.
+2. At time `t`, permanently stops executing — no further messages are sent, no further state transitions occur.
+3. Other processes can *eventually* detect the crash (with the help of a failure detector).
+The defining property is permanence combined with completeness: once a process stops, it never restarts, and its silence is eventually distinguishable from a slow process (given a failure detector of sufficient quality).
  
 ```mermaid
 sequenceDiagram
-    participant A as Process A
-    participant B as Process B (crash-stop)
-    participant C as Process C
+    participant A as Node A
+    participant B as Node B (crash-stop)
+    participant C as Node C
  
-    A->>B: Request
-    B-->>A: Response
-    Note over B: CRASH -- permanent halt
-    A->>B: Request
+    A->>B: Request 1
+    B-->>A: Response 1 ✓
+    A->>B: Request 2
+    B-->>A: Response 2 ✓
+    Note over B: Crash at time t
+    A->>B: Request 3
     Note over A: No response -- timeout fires
-    A->>C: Failover to C
+    A->>C: Redirect Request 3
+    Note over A,C: B never sends another message\nSilence is eventually detected as crash
 ```
+*Crash-stop behavior: normal operation until the crash moment; after the crash, permanent silence with no partial or inconsistent responses.*
  
-*Crash-stop failure: after the crash, Process B sends no further messages. The silence is eventually detectable via timeout.*
+### Algorithmic Properties Under Crash-Stop
  
-The practical implication is that crash-stop gives you a clean **failure boundary**. Any message sent before the crash may or may not have been processed; any message sent after the crash is definitively not processed. Algorithms can reason about this boundary precisely.
+The crash-stop model is attractive for algorithm designers because it eliminates a whole class of ambiguity: a crashed process never sends incorrect messages. Any message that arrives is authentic and correct — the concern is only about missing messages, not malformed or contradictory ones.
  
-Most academic distributed systems literature -- Paxos, Raft, primary-backup replication -- assumes crash-stop failures. The safety proofs depend on the guarantee that a failed node does not send contradictory messages after failure. A Raft leader that crashes cannot simultaneously send conflicting log entries to different followers; it simply stops.
+Under crash-stop with a perfect failure detector (◇P), **consensus** is solvable with `f+1` processes that can tolerate `f` crash failures. The Paxos algorithm, in its simplest analysis, assumes crash-stop semantics: a proposer that stops hearing from an acceptor during the prepare phase can safely conclude that acceptor has crashed and proceed with a quorum that excludes it.
+ 
+**Reliable broadcast** under crash-stop requires only `f+1` correct processes (out of `n` total) to ensure delivery to all correct processes. The standard **Eager Reliable Broadcast** protocol retransmits messages from crashed sources: when a process receives a message `m` from source `p` for the first time, it rebroadcasts `m` to all. This works under crash-stop because a crashed process never sends a partially consistent set of messages — it either sent the full message before crashing or sent nothing.
+ 
+### The Idealization Problem
+ 
+Crash-stop is an idealization that real systems approximate but never fully satisfy.
+ 
+A process does not always crash cleanly. It may:
+- Crash while writing to a socket, sending a partial message that corrupts the receiver's protocol state.
+- Crash while holding a distributed lock, causing dependent processes to block until the lock times out.
+- Crash while partway through a disk write, leaving persistent state in an inconsistent intermediate form.
+- Have its OS send a TCP RST to active connections as part of socket cleanup, notifying peers of the crash — this is closer to fail-stop behavior.
+The "permanent" aspect of crash-stop is also frequently violated in practice. A process killed by the OS out-of-memory killer may be automatically restarted by a process supervisor (systemd, Kubernetes). From the perspective of the distributed algorithm, what appears as a crash-stop failure is actually a crash-recovery failure with a brief recovery window. If the algorithm made decisions based on the assumption that the crashed process was permanently gone, those decisions may be incorrect.
  
 :::caution
-Crash-stop is an idealization. Real processes do not always fail cleanly. A process can crash while a message is in transit, resulting in partial sends. A process can crash, have its port freed by the OS, and have a new process bind to the same port -- causing the new process to receive messages intended for the crashed one. Crash-stop algorithms must handle these edge cases through idempotency and sequence numbers, not by assuming the model holds perfectly.
+Kubernetes `Deployment` restarts — where a crashed pod is replaced by a new pod with the same service identity but fresh state — present as crash-recovery failures to the distributed system, not crash-stop failures. Algorithms that assume a crashed participant never returns must account for this: in Raft, a restarted node must replay its log from its peers before participating in quorum decisions. In ZooKeeper, a restarted server must synchronize its data tree from the leader before rejoining the ensemble.
 :::
  
-## Crash-Recovery Failures
+## Crash-Recovery (Fail-Recovery) Failures
  
-In the **crash-recovery** model, a process may crash and later resume execution. After recovery, it must reconstruct its state from durable storage because in-memory state was lost. The process is unaware of the time that passed during the crash or the messages it missed.
+The **crash-recovery** model relaxes the permanence assumption: a process may crash and later resume execution. The resumption may begin from:
  
-This model is closer to production reality. Kubernetes restarts crashed pods. OS processes are killed and restarted by supervisors. Database servers crash and recover from WAL replay. The question is not whether recovery happens, but what state the process can reconstruct and what it must assume about the state of the rest of the system during its absence.
+- **Persistent state**: data written to durable storage (disk, NVMe, remote storage) before the crash is available on recovery.
+- **Volatile state**: data held only in memory is lost at the crash boundary.
+This single distinction — what survives the crash — drives the entire design of crash-recovery algorithms. Durable writes are expensive (fsync, write-ahead logs, synchronous replication); the question is which writes must be durable and which can safely remain volatile.
  
 ```mermaid
-sequenceDiagram
-    participant L as Leader
-    participant F as Follower (crash-recovery)
-    participant S as Durable Storage
+flowchart TD
+    P[Process P] -->|"writes to WAL\n(durable)"| WAL[(Write-Ahead Log\nDisk)]
+    P -->|"maintains in memory\n(volatile)"| MEM[In-Memory State\nBuffer Pool, Caches]
+    
+    P -->|crash| Crash([Process crashes\nat time t])
+    Crash -->|OS restart| Recovery[Process recovers\nat time t + Δ]
+    
+    WAL -->|"replay from\ncheckpoint"| Recovery
+    MEM -->|"lost -- must\nbe rebuilt"| Recovery
+    
+    Recovery -->|"rejoins cluster\nwith recovered state"| Active[Back in service]
  
-    L->>F: AppendEntries(index=100)
-    F->>S: Write to WAL
-    F-->>L: ACK
-    Note over F: CRASH
-    Note over F: ...time passes, messages missed...
-    F->>S: Read WAL on restart
-    Note over F: RECOVERY -- state at index 100 restored
-    F->>L: I am back, last index=100
-    L->>F: AppendEntries(index=101,102,103)
-    Note over F: Catch up from leader
+    style Crash fill:#c0392b,color:#fff
+    style Recovery fill:#27ae60,color:#fff
+```
+*Crash-recovery: persistent state survives the crash boundary and is replayed during recovery; volatile state must be rebuilt from authoritative sources.*
+ 
+### What Must Be Durable
+ 
+The fundamental question in crash-recovery design is **what the system cannot afford to lose**. The answer divides system components into different durability tiers:
+ 
+**Tier 1 — Must survive any crash, unconditionally:**
+- Transaction log entries that have been acknowledged to clients
+- Write-ahead log records for in-progress transactions
+- Cluster membership and configuration state
+- Leader election epoch/term numbers (Raft's `currentTerm`, Paxos ballot numbers)
+If Raft's `currentTerm` is lost on crash, a restarted node may accept a vote request from a stale leader that was already superseded — violating the single-leader guarantee. This is why Raft requires `currentTerm`, `votedFor`, and `log[]` to be stored on stable (durable) storage and synced before responding to any RPC.
+ 
+**Tier 2 — Durable but can be rebuilt at higher cost:**
+- Database page cache contents (can be rebuilt from disk, but slowly)
+- Secondary index structures (can be rebuilt from primary storage)
+- Query result caches (can be recomputed)
+**Tier 3 — Volatile, loss is acceptable:**
+- In-flight request buffers
+- Connection state
+- Pre-computed aggregates used only for performance
+```go
+// Raft persistent state: must be written to stable storage
+// before responding to any RPC, as per the Raft paper specification
+type RaftPersistentState struct {
+    CurrentTerm int64  // Latest term seen (monotonically increasing)
+    VotedFor    *int64 // CandidateId voted for in current term (nil if none)
+    Log         []LogEntry // Log entries; each entry contains command + term
+}
+ 
+func (r *Raft) persist() error {
+    // Must complete a durable write before this function returns.
+    // Using fsync or equivalent to ensure data reaches stable storage.
+    state := RaftPersistentState{
+        CurrentTerm: r.currentTerm,
+        VotedFor:    r.votedFor,
+        Log:         r.log,
+    }
+    data, err := encodeState(state)
+    if err != nil {
+        return fmt.Errorf("encoding persistent state: %w", err)
+    }
+    // Write to WAL, then fsync -- not just write()
+    if err := r.storage.WriteAndSync(data); err != nil {
+        return fmt.Errorf("persisting raft state: %w", err)
+    }
+    return nil
+}
+ 
+// Called before responding to RequestVote or AppendEntries
+func (r *Raft) handleRequestVote(args RequestVoteArgs) (RequestVoteReply, error) {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+ 
+    // ... voting logic ...
+ 
+    // Persist before replying -- violating this ordering breaks safety
+    if err := r.persist(); err != nil {
+        return RequestVoteReply{}, err
+    }
+    return reply, nil
+}
 ```
  
-*Crash-recovery with WAL: the follower restores persisted state and requests missing entries from the leader.*
+### Recovery Protocol Requirements
  
-Crash-recovery introduces a critical challenge: **state divergence during the crash window**. While a process is down, the rest of the system continues making progress. When the process recovers, it must:
+Under crash-recovery, algorithms must handle three distinct scenarios that do not arise under crash-stop:
  
-1. Determine what state it had at the time of crash
-2. Identify what changes occurred during its absence
-3. Reconcile its recovered state with the current system state
-The durability contract determines step 1. If the process persisted every state change synchronously before acknowledging it, the recovered state is accurate up to the last acknowledged operation. If it used asynchronous persistence, the recovered state may be behind the last acknowledged operation by up to the flush interval -- the **recovery point objective (RPO)**.
+**Stale state on recovery.** A process recovers with persistent state that reflects the world as it was at the crash time. The world has since moved on: other nodes have made decisions, log entries have been committed, cluster membership may have changed. The recovering process must catch up before it can safely participate in quorum operations.
  
-For consensus algorithms, crash-recovery is handled by requiring a recovering node to catch up with the current leader before participating in consensus again. Raft's log replication handles this directly: a recovered follower sends its last known log index to the leader, which replays all missing entries.
+In Raft, a recovering follower uses the normal `AppendEntries` RPC to catch up from the current leader. The leader sends log entries from the point where the follower diverged. The follower cannot vote or serve reads until it has received and applied all committed entries.
  
-The harder case is **recovering a leader or primary**. A recovering leader must determine whether it was the sole leader before crashing (no split occurred) or whether a new leader was elected during its absence. Raft handles this through term numbers: a recovering node with an outdated term cannot be a leader and must step down immediately upon discovering a higher term.
+**Zombie processes.** A process that crashes and recovers quickly may find that other nodes have already taken action assuming it was permanently gone — elected a new leader, removed it from the ISR, expired its distributed lock. The recovered process must recognize it has been superseded and defer to the current cluster state rather than acting on its pre-crash authority.
  
-| Failure type | In-memory state | Persisted state | Recovery action |
-|---|---|---|---|
-| Crash-stop | Lost | N/A -- no recovery | Failover to replica |
-| Crash-recovery (sync persist) | Lost | Current at crash time | Replay WAL, catch up from peer |
-| Crash-recovery (async persist) | Lost | Behind by flush interval | Replay WAL, request retransmission |
-| Crash-recovery (no persist) | Lost | None | Full state transfer from peer |
+The standard mechanism is **epoch/generation numbering**: each new leadership term, cluster epoch, or lock generation carries a monotonically increasing number. A process that recovers with epoch `n` and finds the cluster operating at epoch `n+3` knows it missed three state transitions and must resynchronize rather than act.
+ 
+**Amnesia attacks.** A particularly dangerous scenario occurs when a process recovers with persistent state that is internally consistent but out of date in a way that could cause it to act against the current cluster consensus. For example: a Raft node that persisted `votedFor = Node A` in term 5, then crashed before learning that Node B won the election and committed entries in terms 5 and 6. On recovery, the node correctly knows it voted for A in term 5 — but the cluster has moved to term 7. If the node incorrectly concludes it can grant a vote to A in term 5 again, it could violate Raft's safety invariant.
+ 
+Raft handles this via term numbers: a node that receives any RPC with a higher term than its own immediately updates its term to that value and transitions to follower state. The durable `currentTerm` ensures this check is performed correctly after recovery.
+ 
+### Crash-Recovery in Practice: PostgreSQL and fsync
+ 
+PostgreSQL's crash recovery protocol is the canonical real-world implementation of crash-recovery semantics. Its Write-Ahead Log (WAL) ensures that every committed transaction is recorded durably before the commit acknowledgment is sent to the client.
+ 
+```sql
+-- PostgreSQL WAL configuration for durability
+-- These settings determine the crash-recovery guarantee
+ 
+-- synchronous_commit: controls when WAL is flushed
+-- 'on' (default): WAL flushed to disk before commit ACK -- full crash-safety
+-- 'local': WAL flushed locally but not to sync replicas -- local crash-safe
+-- 'off': WAL buffered -- risk of data loss on crash, ~3x write throughput gain
+SET synchronous_commit = on;
+ 
+-- wal_sync_method: how WAL flushes are implemented
+-- 'fdatasync' or 'fsync': OS-level durability guarantee
+-- 'open_datasync': direct I/O -- bypasses OS buffer cache
+SHOW wal_sync_method;
+ 
+-- checkpoint_completion_target: fraction of checkpoint interval
+-- used to spread checkpoint I/O, reducing fsync spike latency
+SET checkpoint_completion_target = 0.9;
+```
+ 
+The 2018 PostgreSQL `fsync` data loss bug demonstrated the consequence of violating crash-recovery semantics: on some Linux kernel versions, a failed `fsync` call returned success while leaving the WAL buffer in a state that subsequent writes could not recover. PostgreSQL's assumption that `fsync` returning success meant durable write was violated, causing data corruption on recovery. The lesson: crash-recovery guarantees are only as strong as the storage layer's actual durability semantics.
  
 ## Omission Failures
  
-**Omission failures** occur when a process or network link fails to send or receive specific messages while otherwise continuing to operate correctly. The process does not crash -- it is running, processing some messages, and appearing alive -- but certain messages are silently dropped.
+The **omission failure** model covers a different class of fault: a process that is alive and otherwise correct but fails to send or receive some messages. Omission failures are strictly harder than crash-stop failures because the process continues executing — it is not silent, it is selectively silent.
  
-This is qualitatively different from crash failures because the process continues to participate in the system, potentially making progress on some operations while silently failing on others. From the perspective of a process waiting for a response, an omission failure is indistinguishable from a very slow response -- which is exactly why timeouts in partially synchronous systems cannot definitively distinguish failure from delay.
+There are two subtypes:
  
-There are two sub-types:
+**Send omission:** A process fails to send a message it should have sent. The process transitions normally and believes it sent the message, but the message never leaves (dropped in the network stack, in a NIC buffer, or by explicit application logic).
  
-**Send omission**: a process fails to send a message it should have sent. The classic example is a full socket send buffer: the application calls `write()`, the kernel returns success, but the TCP stack drops the segment because the send buffer is full or the connection has reset without the application detecting it.
- 
-**Receive omission**: a process fails to receive a message that was sent to it. The message was delivered to the network stack but dropped before the application read it -- due to a full receive buffer, a firewall rule, or a kernel bug.
+**Receive omission:** A process fails to receive a message that was sent to it. The message was correctly transmitted but was dropped before the process's application layer could process it (lost in a switch buffer, in the NIC ring buffer, or in the OS socket receive queue).
  
 ```mermaid
 flowchart LR
-    subgraph Network["Network (lossy)"]
-        direction LR
-        M1([msg 1]) --> OK1[Delivered]
-        M2([msg 2]) --> DROP[Dropped]
-        M3([msg 3]) --> OK3[Delivered]
+    subgraph SendOmission["Send Omission"]
+        P1[Process P\n(normal state)] -->|"intends to send m"| OS1[OS Network Stack]
+        OS1 -->|"dropped (NIC buffer overflow,\nkernel bug, resource limit)"| Drop1([message m lost\nP believes it was sent])
+        OS1 -.->|never sent| Q1[Process Q]
     end
-    P1[Process A] -->|sends 1,2,3| Network
-    Network -->|receives 1,3| P2[Process B]
-    Note1["Process B receives 1 and 3\nbut never 2 -- no crash,\njust omission"]
+    subgraph RecvOmission["Receive Omission"]
+        P2[Process P] -->|"sends m correctly"| OS2[Network / Switch]
+        OS2 -->|"dropped (switch buffer,\nNIC ring buffer overflow)"| Drop2([message m lost\nQ never processes it])
+        OS2 -.->|never received| Q2[Process Q\n(alive, processing other msgs)]
+    end
+```
+*Send omission: the sender believes it sent but the message was never transmitted. Receive omission: the message was transmitted but never received by the intended process.*
+ 
+### Why Omission Is Harder Than Crash-Stop
+ 
+Under crash-stop, a process that stops sending messages has crashed. Its silence is a reliable signal. Under omission failures, silence is ambiguous: a process that is not responding might be temporarily unable to send (send omission), might not have received the request (receive omission), or might genuinely be crashed. From the outside, these are indistinguishable without explicit probing.
+ 
+Furthermore, **omission failures can be asymmetric across processes**. Node A may successfully exchange messages with Node B, while Node C cannot receive messages from Node B even though Node B believes it is sending them. This creates inconsistent views of who is reachable from where, which is precisely the condition that makes split-brain dangerous: nodes that believe they are in the majority may not be.
+ 
+```mermaid
+flowchart TD
+    A[Node A] <-->|"send and receive OK"| B[Node B]
+    B -->|"B sends to C\n(send omission: message lost)"| C[Node C]
+    C --->|"C sends to B OK"| B
+    
+    A <-->|"A and C communicate OK"| C
+ 
+    note1["B believes:\n- A reachable ✓\n- C reachable ✓ (it's sending)"]
+    note2["C believes:\n- A reachable ✓\n- B unreachable (receives nothing from B)"]
+    note3["Inconsistent reachability views:\nB thinks quorum includes C\nC disagrees"]
+```
+*Asymmetric send omission: B believes it can reach C; C cannot receive from B. Different nodes have inconsistent reachability views.*
+ 
+### Omission and the Two Generals Problem
+ 
+The **Two Generals Problem** (Lamport, 1978) demonstrates the fundamental limit that omission failures impose on distributed coordination. Two armies must coordinate an attack: they can only communicate through messages that may or may not be delivered. The problem proves that **no protocol can guarantee both armies agree to attack simultaneously** if any message can be lost.
+ 
+The proof is by induction: any protocol consists of a finite sequence of messages. If the last message is critical (the final confirmation), it might be lost — so the sender cannot rely on it. But then the second-to-last message becomes the final confirmation, and the same argument applies. The regress continues to the first message, proving no deterministic protocol can guarantee agreement under arbitrary message loss.
+ 
+The Two Generals Problem is not merely a curiosity. It is the reason why exactly-once delivery in distributed systems is impossible without additional constraints. **At-most-once** and **at-least-once** delivery are both achievable; **exactly-once** requires either a reliable channel (eliminating the omission model) or application-level idempotency that makes duplicate delivery safe.
+ 
+### Omission Failures in Real Systems
+ 
+Omission failures are not corner cases — they are a daily occurrence in production systems at scale.
+ 
+**NIC ring buffer overflows** are send and receive omission failures at the hardware level. A saturated receive buffer silently discards packets; the process never learns they arrived. Monitoring `rx_missed_errors` and `rx_fifo_errors` via `ethtool -S <iface>` provides the only visibility.
+ 
+**TCP socket send buffer saturation** causes send omission at the application level. When the kernel's TCP send buffer is full (because the remote receiver's window is closed or the link is saturated), a `write()` call will block or return `EAGAIN`. An application that fails to handle this correctly — assuming `write()` success means the message was sent — is experiencing application-level send omission.
+ 
+**Kafka consumer lag with `max.poll.interval.ms` exceeded** produces a specific omission pattern: a consumer that holds a partition but is too slow to process messages is evicted from the consumer group. From the broker's perspective, the consumer stopped sending heartbeats — an apparent crash-stop. From the consumer's perspective, it was processing messages and never intentionally stopped consuming. The partition's messages are omitted from that consumer's processing until it rejoins.
+ 
+```java
+// Guarding against application-level omission failures in Kafka consumers:
+// explicit handling of poll timeout exceeded and rebalance events
+ 
+consumer.subscribe(List.of("orders"), new ConsumerRebalanceListener() {
+    @Override
+    public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+        // Critical: commit offsets synchronously before partition is reassigned.
+        // Failure to commit here causes reprocessing (at-least-once), not omission.
+        // But committing stale offsets causes omission of subsequent messages.
+        try {
+            consumer.commitSync(currentOffsets);
+        } catch (CommitFailedException e) {
+            log.error("Commit failed during rebalance -- messages may be reprocessed", e);
+        }
+    }
+ 
+    @Override
+    public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
+        // Reset processing state for newly assigned partitions
+        partitions.forEach(tp -> currentOffsets.put(tp, 
+            new OffsetAndMetadata(consumer.position(tp))));
+    }
+});
+ 
+while (running) {
+    // max.poll.interval.ms controls how long between polls before eviction
+    // Set this to comfortably exceed your worst-case processing time
+    ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+    
+    for (ConsumerRecord<String, String> record : records) {
+        try {
+            processRecord(record);
+            currentOffsets.put(
+                new TopicPartition(record.topic(), record.partition()),
+                new OffsetAndMetadata(record.offset() + 1)
+            );
+        } catch (Exception e) {
+            // Decide: skip (omit) this record, or retry?
+            // Retrying indefinitely causes consumer lag growth and eventual eviction.
+            // Skipping to DLQ is an intentional omission with visibility.
+            deadLetterQueue.send(record, e);
+            log.error("Record sent to DLQ after processing failure", e);
+        }
+    }
+}
 ```
  
-*Omission failure: Process A sends three messages; Process B receives two. Neither process crashes. The gap is invisible to both without explicit sequence tracking.*
+### Channel Omission vs. Process Omission
  
-The detection challenge for omission failures is significant. A process experiencing send omissions may believe it has communicated state to its peers when it has not. A process experiencing receive omissions may make decisions based on an incomplete view of system state.
+A precise taxonomy distinguishes two levels at which omission failures occur:
  
-**Handling omission at the application layer** requires:
+**Channel omission (network-level omission):** Messages are lost in transit between correctly operating processes. The processes themselves are executing correctly; the network path between them drops messages. TCP eliminates channel omission through acknowledgment and retransmission — it provides reliable ordered delivery above an unreliable IP layer. UDP does not.
  
-- **Sequence numbers** on every message to detect gaps
-- **Acknowledgments** so senders know which messages were received
-- **Retransmission** for unacknowledged messages
-- **Idempotency** so that retransmitted messages do not cause duplicate processing
-TCP provides sequence numbers, acknowledgments, and retransmission. However, TCP guarantees delivery only for the duration of the connection. A TCP connection that resets silently -- due to a NAT mapping expiry, a load balancer timeout, or a firewall rule -- drops all in-transit messages without notifying either endpoint until the next send attempt.
+**Process omission:** A process receives a message but fails to process it (receive omission) or processes it but fails to send the response (send omission). This is not fixed by TCP because the message reached the process — the omission happened within the process boundary.
  
-:::tip
-In-process omission failures (a goroutine or thread that stops processing its input channel while remaining alive) are common in production and not handled by TCP. A deadlocked consumer, a blocked database write, or a full in-memory queue all create omission-like behavior at the application layer. Distinguish between network omissions (handled by TCP retransmit) and application-layer omissions (require explicit health checks, watchdogs, and queue depth monitoring).
-:::
+Algorithms designed for channel omission (assuming reliable channels but potentially faulty processes) are strictly simpler than algorithms for process omission. Most consensus algorithms in the distributed systems literature assume **reliable channels** (no message loss in transit) and model failure only at the process level. In practice, TCP provides this reliable-channel abstraction over an unreliable network.
  
-## Performance Failures (Timing Failures)
+## The Failure Model Hierarchy
  
-**Performance failures** (also called **timing failures**) occur when a process or network link operates correctly but outside the timing bounds assumed by the system. In the synchronous model, a message delayed beyond the known upper bound Δ is a performance failure. In production, performance failures are far more common than any other failure type.
+These three models form a strict containment hierarchy. An algorithm that tolerates omission failures also handles crash-stop failures (a crashed process simply omits all future messages). An algorithm that handles crash-recovery failures handles crash-stop failures (a process that never recovers is just crash-stop with an infinite recovery time).
  
-Sources of performance failures:
+```mermaid
+flowchart TD
+    BZ["Byzantine Failures\n(arbitrary, malicious behavior)\nHardest model"]
+    OM["Omission Failures\n(selective message loss)\nprocess alive but selectively silent"]
+    CR["Crash-Recovery Failures\n(crash with state recovery)\nprocess resumes with partial state"]
+    CS["Crash-Stop Failures\n(permanent halt)\nEasiest model"]
  
-- **GC pauses** -- a JVM stop-the-world GC pauses all threads for 0.5--10 seconds. From the outside, the process looks crashed. Its heartbeat stops. Other nodes time it out and initiate leader election. When the GC completes, the original process resumes, potentially believing it is still the leader.
-- **CPU starvation** -- a noisy neighbor on a shared host consumes CPU, causing the process to execute slowly. Heartbeats arrive late. Timeouts fire. False failure detection occurs.
-- **Network congestion** -- a switch queue builds up during a traffic burst. Messages that normally arrive in 0.5ms arrive in 50ms or not at all. The network has not failed; it is just slow.
-- **Disk I/O stalls** -- a write to a storage backend blocks for seconds due to a failing disk, a full write cache, or a slow NFS mount. A process blocked on I/O cannot process heartbeats or consensus messages.
-```go
-// Performance failure detection: differentiate slow from dead
-// using an adaptive timeout based on observed latency distribution
+    BZ -->|"strictly harder than"| OM
+    OM -->|"strictly harder than"| CR
+    CR -->|"strictly harder than"| CS
  
-type FailureDetector struct {
-    // Phi Accrual Detector parameters
-    windowSize    int
-    recentSamples []time.Duration
-    mu            sync.Mutex
-}
+    note["Any algorithm correct under\na harder model is also\ncorrect under all easier models"]
  
-func (fd *FailureDetector) RecordHeartbeat(latency time.Duration) {
-    fd.mu.Lock()
-    defer fd.mu.Unlock()
-    fd.recentSamples = append(fd.recentSamples, latency)
-    if len(fd.recentSamples) > fd.windowSize {
-        fd.recentSamples = fd.recentSamples[1:]
-    }
-}
- 
-// Phi returns a suspicion level: higher values mean more likely failed.
-// Threshold of 8.0 gives <0.1% false positive rate under normal conditions.
-// Threshold of 16.0 gives ~0% false positive but slower detection.
-func (fd *FailureDetector) Phi(now time.Time, lastHeartbeat time.Time) float64 {
-    fd.mu.Lock()
-    defer fd.mu.Unlock()
-    elapsed := now.Sub(lastHeartbeat)
-    if len(fd.recentSamples) == 0 {
-        return 0
-    }
-    // compute mean and std dev of recent inter-arrival times
-    var sum, sumSq float64
-    for _, s := range fd.recentSamples {
-        v := float64(s)
-        sum += v
-        sumSq += v * v
-    }
-    n := float64(len(fd.recentSamples))
-    mean := sum / n
-    variance := (sumSq / n) - (mean * mean)
-    if variance <= 0 {
-        variance = 1
-    }
-    stddev := math.Sqrt(variance)
-    y := (float64(elapsed) - mean) / stddev
-    // approximate CDF of normal distribution
-    phi := -math.Log10(1 - 0.5*(1+math.Erf(y/math.Sqrt2)))
-    return phi
-}
+    style BZ fill:#c0392b,color:#fff
+    style OM fill:#e67e22,color:#fff
+    style CR fill:#f39c12,color:#fff
+    style CS fill:#27ae60,color:#fff
 ```
+*The failure model hierarchy: algorithms designed for harder failure models work correctly under easier ones, but not vice versa.*
  
-The Phi Accrual Failure Detector (Hayashibara et al., 2004) is the canonical response to performance failures in consensus systems. Rather than a binary alive/dead verdict, it outputs a continuous suspicion value that accounts for recent latency variance. Akka, Cassandra, and etcd all use variants of this approach.
+### Choosing the Right Model
  
-See [Phi Accrual Failure Detector: Viewing Failure as a Probability](/distributed-systems/en/resilience/failure-detection/phi-accrual-detector/) for the full treatment.
+The correct failure model for a system is the *hardest* failure mode that the system's environment can realistically produce. Designing for a weaker model than the environment can exhibit produces a system that is correct under normal conditions and catastrophically wrong under the failure conditions it was not designed for.
  
-## Byzantine Failures
+| System | Failure model encountered | Why |
+|---|---|---|
+| Single-machine process supervisor (systemd) | Crash-stop | OS-level process death; supervisor restarts are modeled as new processes |
+| Database with WAL (PostgreSQL, MySQL InnoDB) | Crash-recovery | WAL enables state recovery after restart; process identity persists |
+| Kubernetes pod workload | Crash-recovery | Pod restarts restore identity (StatefulSet) or create new identity (Deployment) |
+| Message queue consumer | Omission | Consumer may be alive but fail to ack messages (slow consumer eviction) |
+| Network partition scenario | Omission | Both sides are alive; messages between them are lost |
+| Hardware DRAM bit flip | Byzantine | Data corruption without process crash — appears in wrong results |
+| Malicious actor in network | Byzantine | Intentional message modification, replay, or selective forwarding |
  
-**Byzantine failures** are the strongest failure model: a faulty process may behave arbitrarily. It can send different values to different peers, send messages at the wrong time, collude with other faulty processes, or selectively participate in some protocol steps but not others. The term comes from the Byzantine Generals Problem (Lamport, Shostak, Pease, 1982).
- 
-Byzantine failures subsume all other failure models. A Byzantine process can simulate a crash (by sending no messages), an omission failure (by dropping specific messages), or a performance failure (by delaying messages strategically). The failure model is used primarily in:
- 
-- **Blockchain consensus** (Bitcoin's Proof of Work, Tendermint, HotStuff) where nodes may be operated by adversarial parties
-- **Safety-critical systems** where hardware faults can cause bit flips that produce incorrect but plausible-looking values
-- **Multi-party computation** where protocol participants have incentive to cheat
-For most distributed databases, message queues, and coordination services running on trusted infrastructure, Byzantine fault tolerance is not required -- and its cost (roughly 3f+1 nodes to tolerate f Byzantine faults, vs 2f+1 for crash-stop) is not justified. See [Byzantine Faults: Malicious or Corrupted Actors](/distributed-systems/en/foundations/system-models/byzantine-faults/) for the full treatment.
- 
-## Failure Model Selection in Practice
- 
-The choice of failure model is not purely academic -- it determines the minimum required replication factor, the complexity of the consensus algorithm, and the operational burden of failure detection.
- 
-| Failure model | Min nodes for f faults | Example systems | Detection mechanism |
-|---|---|---|---|
-| Crash-stop | 2f+1 | Raft, Paxos, ZooKeeper | Heartbeat timeout |
-| Crash-recovery | 2f+1 (with durable state) | etcd, PostgreSQL streaming replication | Heartbeat + log position |
-| Omission | 2f+1 (with retransmit) | Most TCP-based systems | Sequence number gaps + ACKs |
-| Performance | 2f+1 (with adaptive timeout) | Cassandra, Akka Cluster | Phi Accrual Detector |
-| Byzantine | 3f+1 | PBFT, Tendermint, HotStuff | Protocol-level vote counting |
- 
-The practical default for infrastructure running on trusted hardware is the **crash-recovery model with omission handling at the network layer** (via TCP). Crash-stop is assumed by most consensus algorithms but must be implemented carefully to avoid the performance-failure trap: a process that appears crashed due to GC pauses or CPU starvation should not trigger irreversible failover actions without adequate timeout margins.
+The failure model also determines the **minimum redundancy required**. Under crash-stop failures, `f+1` replicas tolerate `f` failures — a majority (quorum) of `⌊n/2⌋ + 1` from `n` nodes is sufficient for consensus. Under Byzantine failures, `3f+1` replicas are required to tolerate `f` failures — a two-thirds supermajority. Choosing the crash-stop model for a system that encounters Byzantine failures results in a system that requires only half the correct replicas to agree, allowing a Byzantine actor to tip the balance.
  
 :::danger
-The most dangerous failure mode in practice is the **gray failure**: a process that is partially functional -- responding to health checks but failing to process certain request types, or processing requests slowly enough to violate SLOs without triggering binary alive/dead detectors. Gray failures are not captured by any of the classical failure models. Detecting them requires semantic health checks (does the process produce correct output, not just a TCP ACK?) and SLO-based alerting on latency and error rate, not just liveness probes.
+Never assume crash-stop failure semantics for a distributed system that runs in a shared-tenancy environment (public cloud, multi-tenant Kubernetes), handles financial transactions, or processes data from external untrusted sources. Hardware bit flips in DRAM occur at rates of 10⁻⁷ per bit per hour on commodity hardware — enough to corrupt a critical datum in a large distributed system within months. NIC firmware bugs, virtualization hypervisor bugs, and network equipment firmware errors can all produce omission or Byzantine-level failures that no crash-stop-designed algorithm handles correctly.
 :::
+ 
+## Operational Mapping: From Model to Alerting
+ 
+Understanding which failure model each component can exhibit directly informs the observability and alerting strategy.
+ 
+**Crash-stop indicators:**
+- Process exit code (non-zero or signal-terminated)
+- Health check endpoint stops responding
+- Heartbeat timeout exceeds `failure_timeout`
+- Log stream abruptly ends
+**Crash-recovery indicators:**
+- Process restart counter increases (`kubectl describe pod` shows `RESTARTS > 0`)
+- Application startup log entries appear mid-session
+- In-memory counter metrics reset to zero (Prometheus shows counter reset)
+- Replication lag spikes then recovers (node catching up from log)
+**Omission failure indicators:**
+- Monotonically increasing `rx_missed_errors` or `rx_fifo_errors` (NIC-level omission)
+- Request success rate drops without corresponding error rate increase (requests received but responses silently dropped)
+- Consumer lag grows without consumer crash (Kafka omission pattern)
+- Circuit breaker transitions to open state on a specific downstream (send omission to that target)
+- Clock skew between two nodes that are nominally communicating (heartbeats arrive but data messages don't — asymmetric omission)
+See [Byzantine Faults: Malicious or Corrupted Actors](/distributed-systems/en/foundations/system-models/byzantine-faults/) for the analysis of failure modes that go beyond omission into arbitrary, potentially adversarial behavior.
+See [Network Models: Synchronous, Asynchronous, and Partially Synchronous](/distributed-systems/en/foundations/system-models/network-models/) for how the timing model interacts with the failure model to determine what algorithms are possible.
+See [Deterministic vs. Probabilistic Failure Models](/distributed-systems/en/foundations/system-models/deterministic-vs-probabilistic/) for the extension of these models to probabilistic failure analysis used in real capacity planning.

@@ -1,233 +1,278 @@
 ---
 title: "1.2.1. Network Models: Synchronous, Asynchronous, and Partially Synchronous"
-description: "A precise treatment of the three formal network timing models used in distributed systems theory, what each model assumes about message delay and process speed, and why the partially synchronous model is the only one that matches production infrastructure."
-lastUpdated: 2026-05-06
+description: "A formal analysis of the three network timing models used in distributed systems theory, their implications for algorithm design and impossibility results, and how production systems operate within the partially synchronous reality."
+lastUpdated: 2026-05-13
 sidebar:
   order: 1
 ---
 
-Distributed systems algorithms are not designed against the actual network — they are designed against a **network model**: a formal set of assumptions about message delivery timing, process execution speed, and whether clocks are available. The choice of model determines what algorithms are possible, what guarantees they can provide, and what happens when the model's assumptions are violated in production.
-
-This is not academic formalism. The reason a Raft cluster stalls when it loses quorum rather than electing two leaders is a direct consequence of the network model its safety proof assumes. The reason your service's timeout configuration is always wrong is a direct consequence of operating in a model where timing bounds exist but are unknown. Getting the model right is the prerequisite for understanding why distributed algorithms behave the way they do.
-
+Every distributed algorithm makes assumptions about time. How long can a message take to arrive? How fast does a processor execute steps? Can we distinguish a slow node from a dead one? The answers to these questions are not just theoretical concerns — they determine which algorithms are correct, which safety properties are achievable, and which failure modes a system must tolerate. The three network timing models — **synchronous**, **asynchronous**, and **partially synchronous** — are the formal framework within which these questions are answered.
+ 
+These models are not descriptions of specific hardware or protocols. They are abstractions that define the *worst-case* guarantees a system designer can rely on. Understanding them is prerequisite to understanding why consensus is hard, why timeouts are unreliable failure detectors, and why real distributed systems occupy the uncomfortable middle ground between theoretical extremes.
+ 
 ## The Synchronous Model
-
-In the **synchronous model**, every aspect of distributed execution has a known finite upper bound:
-
-- **Message delivery** — every message sent between processes arrives within a known maximum delay *Δ*
-- **Process execution** — every step of a process's computation completes within a known maximum time
-- **Clock drift** — if processes have local clocks, their drift rate is bounded by a known constant
-Under these assumptions, the world becomes tractable. If you know a message will arrive within *Δ* time, waiting *Δ* + ε is sufficient to conclude it was lost. If you know a process executes within a bounded time, a timeout of that bound plus transmission latency reliably distinguishes a failed process from a slow one.
-
-```mermaid
-sequenceDiagram
-    participant A as Process A
-    participant B as Process B
-
-    Note over A,B: Synchronous model: message delay <= Delta = 100ms
-    A->>B: Request (t=0)
-    Note over B: Processing <= known bound
-    B-->>A: Response (t=80ms <= Delta)
-
-    A->>B: Request (t=200ms)
-    Note over A: No response by t=300ms (Delta exceeded)
-    Note over A: Conclusion: B has failed (not slow)\nThis conclusion is SAFE in sync model
-```
-*In the synchronous model, exceeding the known delay bound Δ is a reliable failure signal. A timeout is not a guess — it is a proof of failure.*
-
-The synchronous model enables a clean solution to **failure detection**: a process is definitively dead if it has not responded within the bounded time window. This makes problems like leader election, distributed consensus, and distributed snapshots algorithmically straightforward — or at least, straightforward relative to weaker models.
-
-The problem is that the synchronous model does not exist in practice. No real network provides a guaranteed upper bound on message delivery. A packet can be delayed by:
-
-- TCP retransmission caused by packet loss (adds one RTO, typically 200ms-1000ms, per loss event)
-- Switch queue buildup during a traffic burst
-- CPU scheduling jitter on the receiver — a process preempted by the kernel OS scheduler may not be scheduled again for tens of milliseconds
-- Virtual machine pauses — a hypervisor live-migrating a VM, running garbage collection, or responding to a balloon driver request can pause all processes in the VM for hundreds of milliseconds to seconds
-- Full GC pauses in JVM-based services, which can suspend all application threads for 0.5-30 seconds depending on heap size and GC algorithm
-None of these have a known upper bound. Any of them can cause a message that "should" have arrived within Δ to arrive late — making a timeout-based failure conclusion incorrect.
-
-:::danger
-The most severe consequence of treating production infrastructure as synchronous is **false positive failure detection**: concluding that a process has failed when it is merely slow or paused. In a system with automatic failover, this triggers leader re-election or replica promotion based on a false premise. If the "failed" leader is actually alive and paused, resuming execution after the pause produces two simultaneous leaders — the split-brain condition. The safety proof of synchronous-model algorithms breaks the moment the synchrony assumption is violated. See [Failover and Leader Election: The Split-Brain Risk](/distributed-systems/en/data-management/replication/failover-leader-election/).
-:::
-
-## The Asynchronous Model
-
-The **asynchronous model** makes the opposite extreme assumption: there are no timing bounds whatsoever.
-
-- Messages may be delayed arbitrarily — a message sent now may arrive in one millisecond or one year, and both are consistent with the model
-- Processes may execute arbitrarily slowly — a process that has not responded may be running slowly, not failed
-- Clocks, if they exist, may drift at any rate and provide no useful timing information
-Under this model, timeouts are meaningless. You cannot set a timeout that reliably distinguishes a failed process from a slow one, because there is no bound on slowness. You cannot use wall-clock time for anything that requires coordination between processes, because clocks may disagree arbitrarily.
-
-The asynchronous model is the *weakest* model — it assumes the least about the system and therefore makes the fewest assumptions that can be violated. An algorithm that is correct in the asynchronous model is correct in any real network, because any bound violations the real network produces are already permitted by the model.
-
-The devastating implication of the asynchronous model is captured by the **FLP impossibility result** (Fischer, Lynch, Paterson, 1985): in a fully asynchronous system where processes can fail by crashing, there is no deterministic algorithm that can solve **consensus** — agreement among a set of processes on a single value — even with only one faulty process.
-
-The proof's mechanism is elegant and important to understand:
-
-```
-FLP Impossibility (informal):
-
-Given an asynchronous system with >=1 crash-stop failures possible:
-
-1. A consensus algorithm must terminate (liveness) and all correct
-   processes must agree on the same value (safety).
-
-2. In an asynchronous system, there is always a "bivalent" initial
-   configuration -- one where the outcome (0 or 1) is not yet determined.
-
-3. From any bivalent configuration, there always exists a sequence of
-   steps that keeps the system bivalent -- an adversarial scheduler can
-   delay messages or fail a process at precisely the point where any
-   decision step would occur.
-
-4. Therefore: no deterministic algorithm can guarantee that a bivalent
-   state eventually terminates. Either it might never decide (violating
-   liveness), or it might decide inconsistently (violating safety).
-```
-
-This is not a limitation of cleverness — it is a mathematical proof that consensus is impossible in the asynchronous model with any faults. The result motivated the entire field of practical consensus algorithm design, which achieves consensus by escaping the asynchronous model through one of two mechanisms:
-
-- **Adding timing assumptions** — introducing bounds on message delivery, even probabilistic ones, that allow algorithms to make progress under normal conditions (the partially synchronous model)
-- **Adding randomization** — using coin flips to break the adversarial scheduling scenarios the FLP proof relies on (Ben-Or's randomized consensus, later extended by Bracha-Toueg)
-The asynchronous model is the theoretical floor. Real systems must escape it to solve consensus. The question is how.
-
-## The Partially Synchronous Model
-
-The **partially synchronous model**, introduced by Dwork, Lynch, and Stockmeyer in 1988, is the model that accurately describes production distributed systems and under which all practical consensus algorithms are designed.
-
-It exists in two variants, both of which capture the intuition that real networks are "usually synchronous" but not "always synchronous":
-
-**Variant 1: GST (Global Stabilization Time).** There exists an unknown time GST such that after GST, the system behaves synchronously — message delays and process speeds are bounded by known constants. Before GST, the system may be fully asynchronous. GST is not known to any process and may never be reached in a pathological scenario. The guarantee is: if GST is eventually reached and stays stable, consensus algorithms will terminate.
-
-**Variant 2: Eventual synchrony.** The system alternates between synchronous and asynchronous periods. The timing bounds may be temporarily violated, but eventually periods of synchrony occur and algorithms can make progress during those periods.
-
+ 
+In the **synchronous model**, every component of the system operates within known, bounded time:
+ 
+- Message delivery is guaranteed within a known maximum delay `Δ` (delta).
+- Every process executes each step of its algorithm within a known maximum time `Φ` (phi).
+- Clock drift between nodes is bounded by a known constant `ε` (epsilon).
+Under these assumptions, the system has **global temporal consistency**: a process that has not heard from a peer within time `Δ + Φ` can conclude with certainty that the peer has crashed, not merely that it is slow. Timeouts become reliable failure detectors. Leader election, consensus, and distributed coordination become algorithmically tractable in ways that are impossible in weaker models.
+ 
 ```mermaid
 flowchart LR
-    subgraph Timeline
-        A["Asynchronous\nperiod\n(no bounds hold)"]
-        B["Partially synchronous\nperiod\n(bounds hold, GST reached)"]
-        C["Asynchronous\nperiod\n(network disruption)"]
-        D["Partially synchronous\nperiod\n(bounds hold again)"]
+    subgraph Sync["Synchronous Model"]
+        A1[Node A] -->|"message arrives ≤ Δ"| B1[Node B]
+        B1 -->|"processes in ≤ Φ"| B1
+        B1 -->|"reply arrives ≤ Δ"| A1
+        note1["If no reply after Δ + Φ:\nNode B has definitely crashed"]
     end
-    A --> B --> C --> D
 ```
-*The partially synchronous model: timing bounds hold during stable periods and are violated during disruptions. Algorithms make progress during synchronous periods and preserve safety during asynchronous ones.*
-
-The design principle that emerges from partial synchrony is the **separation of safety and liveness**:
-
-- **Safety** (correctness invariants — no two nodes decide different values, no data is corrupted) must hold at all times, including during asynchronous periods when the system has no timing guarantees
-- **Liveness** (the system eventually makes progress — a decision is eventually reached, a leader is eventually elected) is only required to hold during synchronous periods
-This is precisely how Raft and Paxos behave. During a network partition — an asynchronous period — they stall. They do not elect two leaders, do not commit writes on both sides of the partition, do not produce inconsistent state. Safety is preserved at the cost of availability. When the partition heals — when the system re-enters a synchronous period — leader election succeeds, log replication resumes, and progress is made.
-
+*In the synchronous model, silence after a known timeout is conclusive evidence of failure — not ambiguity.*
+ 
+The synchronous model enables powerful algorithms. The **Dolev-Strong Byzantine broadcast** algorithm, which tolerates up to `f` Byzantine faults with `f+1` rounds of message exchange, relies on synchrony: each round completes within `Δ`, so `f+1` rounds complete in `(f+1)Δ` total time. Without the bounded-delay assumption, the algorithm cannot proceed to the next round safely because it cannot determine whether a missing message means a slow node or a crashed one.
+ 
+**The problem:** No real network satisfies the synchronous model's assumptions. Packet delays are unbounded in practice — a GC pause, a kernel page fault, a switch buffer overflow, or a TCP retransmission can each cause delays far exceeding any fixed `Δ`. The synchronous model is useful for algorithm analysis and for specialized hardware systems (real-time embedded systems, some HPC environments with InfiniBand), but it does not describe internet-based distributed systems.
+ 
+## The Asynchronous Model
+ 
+The **asynchronous model** is the opposite extreme: it makes no timing assumptions at all.
+ 
+- Messages may take arbitrarily long to deliver, but are eventually delivered (no message loss).
+- Processes may execute at arbitrary speeds.
+- There is no notion of time or clocks — only the order of events matters.
+This is the strongest possible adversarial model. An algorithm that is correct under asynchrony is correct under any weaker model (synchronous or partially synchronous) as well. This makes the asynchronous model theoretically attractive.
+ 
 ```mermaid
-sequenceDiagram
-    participant L as Leader
-    participant F1 as Follower 1
-    participant F2 as Follower 2
-
-    rect rgb(220, 240, 220)
-        Note over L,F2: Synchronous period -- bounded delays, progress possible
-        L->>F1: AppendEntries(term=4, index=102)
-        L->>F2: AppendEntries(term=4, index=102)
-        F1-->>L: ACK
-        F2-->>L: ACK
-        Note over L: Quorum reached -- entry committed
-    end
-
-    rect rgb(240, 220, 220)
-        Note over L,F2: Asynchronous period -- network partition
-        L-xF1: AppendEntries(term=4, index=103) -- lost
-        L-xF2: AppendEntries(term=4, index=103) -- lost
-        Note over L: No quorum -- entry NOT committed (safety preserved)
-        Note over F1,F2: Election timeout fires... but no quorum for new leader either
-        Note over L,F2: STALLED -- liveness sacrificed, safety maintained
-    end
-
-    rect rgb(220, 240, 220)
-        Note over L,F2: Synchronous period resumes -- partition healed
-        F1-->>L: Reconnected, log sync begins
-        Note over L: Quorum restored -- progress resumes
+flowchart LR
+    subgraph Async["Asynchronous Model"]
+        A2[Node A] -->|"message may take\narbitrarily long"| B2[Node B]
+        B2 -->|"processes at\narbitrary speed"| B2
+        note2["If no reply received:\nNode B crashed? Slow? Partitioned?\nImpossible to determine."]
     end
 ```
-*Raft under partial synchrony: safety is preserved during the asynchronous partition (no commits without quorum) and liveness resumes during synchronous periods.*
-
-## Timeout Configuration as Model Calibration
-
-The partially synchronous model makes timeout configuration precise: a timeout is an *estimate* of the synchrony bound Δ. Set it too low relative to actual delays, and you get false positive failure detection — triggering unnecessary failovers, split-brain conditions, and recovery cascades. Set it too high, and the system is slow to detect real failures and slow to recover.
-
-The correct timeout is not derivable from theory — it must be measured from the actual system. The minimum viable timeout is:
-
+*In the asynchronous model, silence carries no information: a non-responding node may have crashed, may be computing, or may be delivering a message that arrives years later.*
+ 
+The asynchronous model produces the most important impossibility result in distributed systems theory.
+ 
+### The FLP Impossibility Result
+ 
+In 1985, Fischer, Lynch, and Paterson proved the **FLP Impossibility**: in a fully asynchronous system, there is no deterministic algorithm that can solve consensus (agreement on a single value) even with just one possible crash failure.
+ 
+The proof's key insight is subtle. In an asynchronous system, a process cannot distinguish between a crashed peer and a slow peer. Any algorithm that declares a decision after waiting for a timeout might be making the wrong decision — the "crashed" peer might still be computing and could deliver a conflicting response. If the algorithm waits longer to be safe, an adversary can slow down the computation to prevent the algorithm from ever terminating. No fixed waiting strategy works; there is always an execution schedule that prevents consensus from being reached in finite time.
+ 
+```mermaid
+flowchart TD
+    Start[Algorithm needs to reach consensus]
+    Start --> Q1{Wait for all responses?}
+    Q1 -->|Yes| Infinite[May wait forever\nif any node is slow or crashed]
+    Q1 -->|No, decide after timeout| Q2{Did missing node crash?}
+    Q2 -->|It crashed| Correct[Decision is safe]
+    Q2 -->|It was just slow| Wrong[Contradicting response arrives later\nConsensus violated]
+    Q2 -->|Can never know in async model| FLP[FLP Impossibility:\nNo deterministic algorithm works]
+ 
+    style FLP fill:#c0392b,color:#fff
+    style Wrong fill:#e67e22,color:#fff
 ```
-timeout >= max_processing_time + 2 * max_one_way_network_delay + safety_margin
-```
-
-In practice, "max" is undefined because the asynchronous model permits arbitrary delays. What you can measure is the *empirical* p99.9 or p99.99 of round-trip time under normal operating conditions. A timeout set at the p99.9 will produce a false positive for one in every 1,000 heartbeats under normal conditions. Whether that is acceptable depends on the cost of a false positive in your specific system.
-
-```go
-// Raft timeout configuration: a concrete example of model calibration
-type RaftConfig struct {
-    // HeartbeatInterval: how often the leader sends heartbeats to followers.
-    // Must be significantly less than ElectionTimeout to allow multiple
-    // heartbeats per election window -- prevents spurious elections due to
-    // a single delayed heartbeat.
-    HeartbeatInterval time.Duration
-
-    // ElectionTimeout: how long a follower waits without a heartbeat before
-    // starting an election. Should be >> HeartbeatInterval to avoid
-    // spurious elections, but << MTTR (mean time to detect real failure)
-    // to recover quickly.
-    //
-    // Practical range: 150ms-5000ms depending on network latency and
-    // GC/VM pause characteristics of your infrastructure.
-    ElectionTimeout time.Duration
-
-    // ElectionTimeoutJitter: randomization applied to ElectionTimeout per
-    // node to prevent split votes (multiple followers timing out simultaneously).
-    // Typically 0.5-1.0 x ElectionTimeout.
-    ElectionTimeoutJitter time.Duration
-}
-
-// Typical configuration for intra-AZ deployment (p99 RTT ~1ms)
-var IntraAZConfig = RaftConfig{
-    HeartbeatInterval:     50 * time.Millisecond,
-    ElectionTimeout:       150 * time.Millisecond,
-    ElectionTimeoutJitter: 150 * time.Millisecond, // range: 150-300ms
-}
-
-// Conservative configuration for cross-AZ deployment (p99 RTT ~5ms,
-// JVM GC pauses possible up to 200ms)
-var CrossAZConfig = RaftConfig{
-    HeartbeatInterval:     150 * time.Millisecond,
-    ElectionTimeout:       1000 * time.Millisecond,
-    ElectionTimeoutJitter: 1000 * time.Millisecond, // range: 1000-2000ms
-}
-```
-
-:::caution
-JVM GC pauses are the most common cause of spurious leader elections in Java/Scala-based distributed systems (Kafka, Elasticsearch, Cassandra). A stop-the-world GC pause of 500ms on the leader node causes it to miss heartbeat intervals, triggering elections on followers that perceived the leader as failed. When the GC pause ends, the original leader may attempt to continue as leader while an election is in progress — requiring a term-number increment to resolve. Tuning election timeouts without profiling GC pause durations on the leader produces timeouts that are wrong for the actual failure modes. Use G1GC or ZGC with pause targets below your heartbeat interval; instrument `jvm_gc_pause_seconds` and alert when pause duration approaches `HeartbeatInterval / 2`.
-:::
-
-## Implications for Algorithm Design
-
-The network model a distributed algorithm assumes constrains which problems it can solve and what guarantees it can provide. The practical mapping:
-
-| Model | Failure detection | Consensus | Example algorithms |
-|---|---|---|---|
-| **Synchronous** | Perfect (timeouts are definitive) | Solvable deterministically | Theoretical only; no production use |
-| **Asynchronous** | Impossible (no timeout bound) | Impossible (FLP) | Purely async systems avoid consensus |
-| **Partially synchronous** | Eventually perfect (correct during sync periods) | Solvable with liveness during sync periods | Raft, Paxos, Zab, PBFT |
-
-**Eventually perfect failure detectors** (Chandra-Toueg, 1996) are the formal tool designed for the partially synchronous model. They are characterized by two properties:
-
-- **Strong completeness** — every crashed process is eventually permanently suspected by every correct process
-- **Eventual strong accuracy** — after some time, no correct process is suspected
-The "eventual" qualifier is the key. During asynchronous periods, the failure detector may produce false positives (suspecting a correct process). During synchronous periods, it is accurate. Raft's heartbeat timeout is an implementation of an eventually perfect failure detector.
-
-The model also explains the behavior of **etcd and ZooKeeper under network stress**. Both use quorum-based consensus (Raft and Zab respectively). When network delays push heartbeat delivery beyond election timeout thresholds — an asynchronous period — the cluster may lose its leader and enter an election cycle. Writes stall; reads from followers may serve stale data. This is not a bug. It is the correct behavior for a CP system in the partially synchronous model: safety is preserved (no split-brain, no inconsistent commits), liveness is temporarily sacrificed (writes stall until a new leader is elected during a synchronous period).
-
-The corollary: if your use case requires that a distributed coordination service never stalls writes during network disruptions, you are asking for an AP system, and the trade-off is that the AP system may produce inconsistent results during those same disruptions. The model determines which trade-off you are making. Choosing the model is not a technical decision — it is a requirements decision that must be made with full understanding of what each model sacrifices.
-
+*The FLP dilemma: in a fully asynchronous model, no waiting strategy can safely distinguish crash from slowness, making deterministic consensus impossible.*
+ 
+FLP is not merely an academic result. It is the reason that every practical consensus algorithm — Paxos, Raft, Zab, PBFT — relies on timing assumptions that go beyond the pure asynchronous model. Raft uses leader election timeouts. Paxos uses round timers. Multi-Paxos uses heartbeats. These are all mechanisms for injecting partial synchrony into a system that would otherwise be fully asynchronous.
+ 
+FLP also explains why **randomized consensus algorithms** (like Ben-Or's algorithm and its descendants) can avoid the impossibility: they sacrifice determinism. By flipping coins, they can break the adversary's ability to construct a worst-case execution schedule. But randomized algorithms introduce their own complexity — probabilistic guarantees rather than absolute ones, and expected-time bounds rather than worst-case bounds.
+ 
 :::note
-The partially synchronous model is a theoretical abstraction, not an operational prescription. In production, "the system is synchronous" means "timing bounds are currently holding" — which you cannot observe directly, only infer from the absence of timeout events. Distributing tracing and SLO-based latency alerting are the practical instruments that tell you whether your system is operating in the synchronous regime or drifting toward the asynchronous one. See [Distributed Tracing: Span, Trace, and Baggage Propagation](/distributed-systems/en/observability/logs-metrics-traces/distributed-tracing/).
+FLP proves that *deterministic* consensus is impossible under pure asynchrony with even one crash failure. It does not say consensus is impossible with randomization, nor does it apply to systems where timing assumptions hold for long enough to make progress. The practical takeaway is not "consensus is impossible" but "consensus requires either timing assumptions or randomization — and production systems use timing."
 :::
+ 
+## The Partially Synchronous Model
+ 
+The **partially synchronous model**, formalized by Dwork, Lynch, and Stockmeyer (DLS) in 1988, captures the reality of production networks: timing bounds exist, but they are not always known and do not always hold.
+ 
+DLS defined two specific variants:
+ 
+**DLS Model 1 (Unknown bounds, always hold):** There exist fixed bounds `Δ` and `Φ` on message delivery and process speed, but the algorithm designer does not know what these bounds are. The system is synchronous, but the algorithm cannot rely on any particular value of `Δ`. This requires algorithms that work for *any* timing, discovering the appropriate values through operation.
+ 
+**DLS Model 2 (Known bounds, hold eventually):** The bounds `Δ` and `Φ` are known, but they only hold after some unknown **Global Stabilization Time (GST)**. Before GST, the system behaves asynchronously — delays may be arbitrary. After GST, timing bounds hold and consensus can be achieved. The algorithm cannot know when GST has occurred, but it must be safe (no wrong decisions) at all times and live (eventually make progress) after GST.
+ 
+The GST model is the most practically useful formalization: it captures the experience of real networks where behavior is mostly synchronous but occasionally experiences unbounded delays during failure events, network congestion, or GC pauses.
+ 
+```mermaid
+timeline
+    title Partially Synchronous System Timeline
+    section Pre-GST (Async Phase)
+        t=0 : System starts -- timing bounds unknown
+        t=5s : Network partition occurs -- delays unbounded
+        t=12s : GC pause on leader -- processing halted
+        t=18s : Partition heals -- messages in flight delivered
+    section Post-GST (Sync Phase)
+        t=20s : GST reached -- timing bounds now hold
+        t=21s : Algorithm makes safe progress
+        t=22s : Consensus achieved -- correct decision
+```
+*The GST model: safety must hold through the asynchronous pre-GST phase; liveness is only guaranteed once GST is reached.*
+ 
+### Why Partial Synchrony Is the Right Model for Production
+ 
+Real distributed systems do not behave synchronously at all times, and they do not behave asynchronously at all times. They oscillate:
+ 
+- **Most of the time:** messages arrive within tens to hundreds of milliseconds. Processing completes quickly. The system behaves roughly synchronously.
+- **Occasionally:** a GC pause freezes a process for 200ms-10s. A switch buffer overflow causes a burst of packet loss. A network reconfiguration causes 30 seconds of elevated latency. During these periods, the system behaves asynchronously.
+- **Rarely:** a network partition creates an extended asynchronous phase lasting minutes to hours.
+Under partial synchrony, the design contract for distributed algorithms is:
+ 
+- **Safety** (no wrong decisions, no data corruption, no consistency violations) must hold unconditionally — including during asynchronous phases.
+- **Liveness** (eventually making progress, eventually electing a leader, eventually committing a transaction) is only guaranteed once the system returns to a stable synchronous phase.
+This is exactly the contract that Raft and Paxos satisfy. Raft's safety properties (no two leaders in the same term, committed log entries are never overwritten) hold even during network partitions. Its liveness properties (a leader is eventually elected, log entries are eventually committed) only hold when the network is stable enough for heartbeats to arrive reliably.
+ 
+## Implications for Algorithm Design
+ 
+The choice of timing model determines the design space for distributed algorithms. The implications are concrete and visible in every production consensus system.
+ 
+### Timeouts as Imperfect Failure Detectors
+ 
+In a synchronous system, timeouts are perfect failure detectors: a timeout after `Δ + Φ` conclusively identifies a crashed node. In a partially synchronous system, timeouts are **unreliable failure detectors** that produce false positives (declaring a live node dead during an asynchronous phase) and false negatives (a crashed node whose death has not yet been detected because `Δ` has not been exceeded).
+ 
+The practical consequence: every production distributed system must be designed to tolerate false failure detections. A Raft cluster that incorrectly believes the leader is dead will hold an election, potentially causing a brief unavailability window as a new leader is elected. If this false detection happens during a GC pause, the "dead" leader may recover and find a new leader in its place — a situation Raft handles correctly by using term numbers to reject stale leader messages.
+ 
+```mermaid
+flowchart TD
+    Timeout[Timeout fires:\nno response from Node B] --> Q{What actually happened?}
+    Q -->|Node B crashed| TruePositive[True Positive:\nStart recovery procedure\nCorrect action]
+    Q -->|Node B had GC pause| FalsePositive[False Positive:\nUnnecessary leader election\nBrief unavailability]
+    Q -->|Network partition| Ambiguous[Ambiguous:\nNode B alive in its partition\nPotential split-brain if not handled]
+ 
+    style FalsePositive fill:#e67e22,color:#fff
+    style Ambiguous fill:#c0392b,color:#fff
+```
+*Timeout interpretation under partial synchrony: the same timeout event can mean three different things, only one of which is the expected scenario.*
+ 
+### Timeout Calibration Trade-offs
+ 
+Timeout values in a distributed system are a fundamental trade-off between false positive rate and detection latency:
+ 
+| Timeout too short | Timeout too long |
+|---|---|
+| False positives during GC pauses, slow nodes | Long detection time for real failures |
+| Unnecessary leader elections and reconfiguration | Extended unavailability during real partitions |
+| Election storms under load | Large data loss window for crash recovery |
+| High messaging overhead from frequent re-elections | Applications experience long timeout-wait periods |
+ 
+**Practical calibration:** The canonical starting point for systems like etcd is `heartbeat_interval = 150ms`, `election_timeout = 750ms-1500ms` (5-10× heartbeat interval). This is tuned to tolerate GC pauses up to ~500ms without false positives, while still detecting real failures within ~1-2 seconds. Applications with more stringent availability requirements use tighter timeouts and accept higher false-positive rates — which requires their state machines to handle spurious leader elections correctly.
+ 
+### Safety vs. Liveness Under Asynchrony
+ 
+The CAP theorem is often described as a trade-off between consistency and availability during partitions. Through the lens of timing models, it is more precisely a statement about the safety/liveness trade-off under asynchrony:
+ 
+- **CP systems** (Cassandra in strong consistency mode, etcd, Zookeeper) prioritize safety. During an asynchronous phase (partition), they stop making progress (violate liveness) rather than risk making incorrect decisions (violate safety). They wait for synchrony to return.
+- **AP systems** (Cassandra in eventual consistency mode, DynamoDB with eventual reads) prioritize liveness. During a partition, they continue making progress (accepting reads and writes) at the cost of potential safety violations (different partitions diverge). They accept the risk of incorrect decisions during asynchrony.
+Neither approach is universally correct. The choice depends on what "incorrect decision" means for the specific application: an account balance discrepancy (safety-critical, use CP) versus a view counter that can be briefly stale (safety-relaxed, AP acceptable).
+ 
+```mermaid
+flowchart LR
+    subgraph CP["CP System (Safety Priority)"]
+        CP1[Normal operation\nsynchronous phase\nfull consistency]
+        CP2[Partition occurs\nasynchronous phase]
+        CP3[System pauses\nno writes accepted\nwaits for quorum]
+        CP1 --> CP2 --> CP3
+    end
+    subgraph AP["AP System (Liveness Priority)"]
+        AP1[Normal operation\nsynchronous phase\nfull consistency]
+        AP2[Partition occurs\nasynchronous phase]
+        AP3[Both sides continue\naccept writes\nstate diverges]
+        AP1 --> AP2 --> AP3
+    end
+```
+*CP vs. AP under a network partition: the timing model determines which property is sacrificed during the asynchronous phase.*
+ 
+## The Consensus Hierarchy Under Each Model
+ 
+The three timing models define a strict hierarchy of what is computationally achievable:
+ 
+| Problem | Synchronous | Asynchronous | Partially Synchronous |
+|---|---|---|---|
+| **Reliable broadcast** | Achievable | Achievable | Achievable |
+| **Leader election** | Achievable | Impossible (FLP variant) | Achievable after GST |
+| **Consensus (crash faults)** | Achievable | Impossible (FLP) | Achievable after GST |
+| **Consensus (Byzantine faults)** | Achievable (needs `3f+1` nodes) | Impossible | Achievable after GST (needs `3f+1` nodes) |
+| **Total order broadcast** | Achievable | Equivalent to consensus → impossible | Achievable after GST |
+| **Atomic commit (2PC)** | Achievable | Blocks on coordinator crash | Achievable with timeout-based recovery |
+ 
+The equivalence between **consensus** and **total order broadcast** (Atomic Broadcast) is a fundamental result: any algorithm that solves one can be transformed to solve the other. This is why distributed databases that require serializable transactions and distributed systems that require log ordering all fundamentally require some form of consensus — and why they all require partial synchrony to work.
+ 
+## Practical Partial Synchrony: What Production Systems Assume
+ 
+No production distributed system explicitly identifies which DLS variant it operates under. But their design decisions encode the assumptions implicitly.
+ 
+**Raft** assumes partial synchrony (DLS Model 2). Its election timeouts implement the "timing bounds hold eventually" assumption: if the network is unstable enough that timeouts never hold, Raft will never elect a stable leader (liveness fails). But it will never produce two committed log entries that conflict (safety holds).
+ 
+**Apache Kafka's ISR (In-Sync Replica) mechanism** assumes partial synchrony for its replication protocol. A replica that falls behind by more than `replica.lag.time.max.ms` (default: 30 seconds) is removed from the ISR — a timeout-based failure detection that produces false positives during GC pauses or temporary latency spikes, causing unnecessary ISR shrinking and subsequent re-expansion.
+ 
+**Google Spanner** makes a more aggressive timing assumption: it relies on TrueTime, GPS-synchronized clocks with a known, bounded uncertainty interval `[t-ε, t+ε]`. By committing transactions with timestamps that account for the uncertainty interval, Spanner converts a partial synchrony problem into one it can solve with high confidence. This is not full synchrony — the bounds are probabilistic and can be violated during GPS outages — but it is tighter than the standard partially synchronous model.
+ 
+```go
+// Practical implementation of partial synchrony awareness:
+// A leader heartbeat mechanism that degrades gracefully under asynchrony
+ 
+type LeaderHeartbeat struct {
+    interval     time.Duration // How often to send heartbeats
+    timeout      time.Duration // How long before declaring leader dead
+    jitter       time.Duration // Randomize to avoid synchronized elections
+    lastReceived time.Time
+    mu           sync.Mutex
+}
+ 
+func (h *LeaderHeartbeat) IsLeaderAlive() bool {
+    h.mu.Lock()
+    defer h.mu.Unlock()
+ 
+    elapsed := time.Since(h.lastReceived)
+    // Timeout is a heuristic, not a proof of death.
+    // False positives (live leader declared dead) are handled by term numbers.
+    // False negatives (dead leader not yet detected) are bounded by h.timeout.
+    return elapsed < h.timeout
+}
+ 
+func (h *LeaderHeartbeat) OnHeartbeatReceived() {
+    h.mu.Lock()
+    defer h.mu.Unlock()
+    h.lastReceived = time.Now()
+}
+ 
+// Election timeout with jitter: avoids synchronized elections
+// when multiple followers detect the same leader timeout simultaneously
+func (h *LeaderHeartbeat) ElectionTimeout() time.Duration {
+    // Add random jitter in [0, jitter) to desynchronize elections
+    jitterVal := time.Duration(rand.Int63n(int64(h.jitter)))
+    return h.timeout + jitterVal
+}
+```
+ 
+:::caution
+A common mistake when tuning distributed consensus systems is setting election timeouts too aggressively short in an attempt to minimize failover time. On JVM-based systems (Kafka, Zookeeper, Elasticsearch), GC pauses of 200ms-2s are common even with G1GC or ZGC. An election timeout shorter than the 99th-percentile GC pause duration will produce frequent false leader elections, creating instability that compounds under load — exactly the conditions when stability is most needed.
+:::
+ 
+## The Real-World Model: Partial Synchrony With Failure Detectors
+ 
+In practice, distributed systems augment partial synchrony with **failure detectors** — modules that provide hints about process crashes, even if those hints are imperfect. Chandra and Toueg (1996) classified failure detectors by two properties:
+ 
+**Completeness:** Eventually, every crashed process is suspected by every correct process. (No crashed process is permanently missed.)
+ 
+**Accuracy:** No correct process is ever suspected. (No false positives.)
+ 
+Perfect failure detectors (complete and accurate) do not exist under asynchrony — this is equivalent to solving consensus, which FLP proves impossible. But **eventually strongly accurate** failure detectors (complete, and eventually accurate after some stabilization time) are achievable under partial synchrony, and they are sufficient to solve consensus.
+ 
+This is precisely what production heartbeat-based failure detectors implement: they are eventually accurate (false positives during GC pauses resolve once the pause ends) and eventually complete (a permanently crashed node will eventually exceed the timeout on all observers). The combination gives consensus algorithms the failure detection they need without requiring full synchrony.
+ 
+| Failure Detector Class | Completeness | Accuracy | Sufficient for Consensus? |
+|---|---|---|---|
+| **Perfect (P)** | Strong | Strong | Yes (synchronous only) |
+| **Eventually Perfect (◇P)** | Strong | Eventually Strong | Yes (partially synchronous) |
+| **Strong (S)** | Strong | Weak (one correct node never suspected) | Yes |
+| **Eventually Strong (◇S)** | Strong | Eventually Weak | Yes (weakest sufficient class) |
+| **Weak (W)** | Weak | Weak | No |
+ 
+Production systems implement approximately **◇P (Eventually Perfect)**: heartbeats detect failures with high probability, false positives resolve once timing stabilizes, and the consensus algorithm (Raft, Paxos) handles the residual ambiguity through its epoch/term numbering scheme.
+ 
+See [Failure Models: Crash-Stop, Crash-Recovery, Omission](/distributed-systems/en/foundations/system-models/failure-models/) for how the timing model interacts with the failure model taxonomy.
+See [Byzantine Faults: Malicious or Corrupted Actors](/distributed-systems/en/foundations/system-models/byzantine-faults/) for the additional complexity introduced when the failure model is extended beyond crash faults.
+See [Lamport Timestamps: Capturing Causality](/distributed-systems/en/foundations/time-and-ordering/lamport-timestamps/) for how causality is tracked in asynchronous systems where global time cannot be relied upon.
