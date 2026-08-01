@@ -325,7 +325,7 @@ export default defineConfig({
                 },
                 {
                   label: '2.2.8. Dead Letter Queues and Poison Message Handling',
-                  translations: { tr: '2.2.8. Dead Letter Queue\'lar ve Poison Message Yönetimi' },
+                  translations: { tr: '2.2.8. Dead Letter Queues ve Poison Message Yönetimi' },
                   slug: 'communication/async-messaging/dlq-poison-messages',
                 },
               ],
@@ -460,7 +460,7 @@ export default defineConfig({
                 },
                 {
                   label: '3.1.6. Colocated Joins: Placing Related Data on the Same Shard',
-                  translations: { tr: '3.1.6. Colocated Join\'ler: İlgili Verileri Aynı Shard\'a Yerleştirmek' },
+                  translations: { tr: '3.1.6. Colocated Joins: İlgili Verileri Aynı Shard\'a Yerleştirmek' },
                   slug: 'data-management/data-partitioning/colocated-joins',
                 },
                 {
@@ -559,7 +559,7 @@ export default defineConfig({
                 },
                 {
                   label: '3.3.8. CRDTs: Conflict-free Replicated Data Types',
-                  translations: { tr: '3.3.8. CRDT\'ler: Çakışmasız Çoğaltılmış Veri Türleri' },
+                  translations: { tr: '3.3.8. CRDTs: Çakışmasız Çoğaltılmış Veri Türleri' },
                   slug: 'data-management/consistency-models/crdts',
                 },
               ],
@@ -581,7 +581,7 @@ export default defineConfig({
                 },
                 {
                   label: '3.4.2. SSTables, Memtable, and Compaction Strategies',
-                  translations: { tr: '3.4.2. SSTable\'lar, Memtable ve Compaction Stratejileri' },
+                  translations: { tr: '3.4.2. SSTables, Memtable ve Compaction Stratejileri' },
                   slug: 'data-management/storage-engines/sstables-memtable-compaction',
                 },
                 {
@@ -684,7 +684,7 @@ export default defineConfig({
                 },
                 {
                   label: '4.1.4. RDD, DataFrame, and Dataset APIs',
-                  translations: { tr: '4.1.4. RDD, DataFrame ve Dataset API\'leri' },
+                  translations: { tr: '4.1.4. RDD, DataFrame ve Dataset APIs' },
                   slug: 'data-processing/batch-processing/rdd-dataframe-dataset',
                 },
                 {
@@ -768,7 +768,7 @@ export default defineConfig({
                 },
                 {
                   label: '4.3.4. Log Compaction: Kafka Compacted Topics and Tombstones',
-                  translations: { tr: '4.3.4. Log Compaction: Kafka Compacted Topic\'ler ve Tombstone\'lar' },
+                  translations: { tr: '4.3.4. Log Compaction: Kafka Compacted Topics ve Tombstones' },
                   slug: 'data-processing/hybrid-architectures/log-compaction',
                 },
                 {
@@ -851,7 +851,7 @@ export default defineConfig({
                 },
                 {
                   label: '5.2.1. The Split-Brain Problem and Fencing Tokens',
-                  translations: { tr: '5.2.1. Split-Brain Problemi ve Fencing Token\'ları' },
+                  translations: { tr: '5.2.1. Split-Brain Problemi ve Fencing Tokens' },
                   slug: 'coordination/consensus-algorithms/split-brain-fencing',
                 },
                 {
@@ -908,7 +908,7 @@ export default defineConfig({
                 },
                 {
                   label: '5.3.3. Fencing Tokens: Preventing Stale Lock Holders',
-                  translations: { tr: '5.3.3. Fencing Token\'ları: Eski Kilit Sahiplerini Engellemek' },
+                  translations: { tr: '5.3.3. Fencing Tokens: Eski Kilit Sahiplerini Engellemek' },
                   slug: 'coordination/distributed-locking/fencing-tokens',
                 },
                 {
@@ -1257,7 +1257,7 @@ export default defineConfig({
                 },
                 {
                   label: '7.3.1. Heartbeats and the Science of Timeout Configuration',
-                  translations: { tr: '7.3.1. Heartbeat\'ler ve Zaman Aşımı Yapılandırmasının Bilimi' },
+                  translations: { tr: '7.3.1. Heartbeats ve Zaman Aşımı Yapılandırmasının Bilimi' },
                   slug: 'resilience/failure-detection/heartbeats-timeouts',
                 },
                 {
@@ -1345,7 +1345,7 @@ export default defineConfig({
                 },
                 {
                   label: '8.1.1. Structured Logging: JSON Logs and Correlation IDs',
-                  translations: { tr: '8.1.1. Yapılandırılmış Loglama: JSON Logları ve Korelasyon ID\'leri' },
+                  translations: { tr: '8.1.1. Yapılandırılmış Loglama: JSON Logları ve Korelasyon IDs' },
                   slug: 'observability/logs-metrics-traces/structured-logging',
                 },
                 {
@@ -1402,7 +1402,7 @@ export default defineConfig({
                 },
                 {
                   label: '8.2.4. Jaeger / Zipkin / Tempo: Distributed Tracing Backends',
-                  translations: { tr: '8.2.4. Jaeger / Zipkin / Tempo: Dağıtık İzleme Backend\'leri' },
+                  translations: { tr: '8.2.4. Jaeger / Zipkin / Tempo: Dağıtık İzleme Backends' },
                   slug: 'observability/observability-tools/tracing-backends',
                 },
                 {
@@ -1419,7 +1419,7 @@ export default defineConfig({
             },
             {
               label: '8.3. SLOs, SLAs, and Error Budgets',
-              translations: { tr: '8.3. SLO\'lar, SLA\'lar ve Hata Bütçeleri' },
+              translations: { tr: '8.3. SLOs, SLAs ve Hata Bütçeleri' },
               collapsed: true,
               items: [
                 {
@@ -1505,7 +1505,7 @@ export default defineConfig({
                 },
                 {
                   label: '9.1.5. Node Affinity, Taints and Tolerations: Fine-Grained Placement',
-                  translations: { tr: '9.1.5. Node Affinity, Taint\'ler ve Tolerasyon\'lar: İnce Taneli Yerleştirme' },
+                  translations: { tr: '9.1.5. Node Affinity, Taints ve Tolerations: İnce Taneli Yerleştirme' },
                   slug: 'kubernetes/fundamentals/node-affinity-taints',
                 },
                 {
@@ -1527,17 +1527,17 @@ export default defineConfig({
                 },
                 {
                   label: '9.2.1. Container Internals: Namespaces, cgroups v2, and the OCI Runtime',
-                  translations: { tr: '9.2.1. Konteyner İç Yapısı: Namespace\'ler, cgroups v2 ve OCI Runtime' },
+                  translations: { tr: '9.2.1. Konteyner İç Yapısı: Namespaces, cgroups v2 ve OCI Runtime' },
                   slug: 'kubernetes/runtime-and-operations/container-internals',
                 },
                 {
                   label: '9.2.2. Resource Management: Requests, Limits, QoS, OOMKill, and CPU Throttling',
-                  translations: { tr: '9.2.2. Kaynak Yönetimi: Request\'ler, Limit\'ler, QoS, OOMKill ve CPU Throttling' },
+                  translations: { tr: '9.2.2. Kaynak Yönetimi: Requests, Limits, QoS, OOMKill ve CPU Throttling' },
                   slug: 'kubernetes/runtime-and-operations/resource-management-qos',
                 },
                 {
                   label: '9.2.3. Kubernetes Networking: Services, kube-proxy, and CNI',
-                  translations: { tr: '9.2.3. Kubernetes Ağı: Service\'ler, kube-proxy ve CNI' },
+                  translations: { tr: '9.2.3. Kubernetes Ağı: Services, kube-proxy ve CNI' },
                   slug: 'kubernetes/runtime-and-operations/kubernetes-networking',
                 },
                 {
@@ -1547,7 +1547,7 @@ export default defineConfig({
                 },
                 {
                   label: '9.2.5. Graceful Termination and PodDisruptionBudgets',
-                  translations: { tr: '9.2.5. Graceful Termination ve PodDisruptionBudget\'lar' },
+                  translations: { tr: '9.2.5. Graceful Termination ve PodDisruptionBudgets' },
                   slug: 'kubernetes/runtime-and-operations/graceful-termination-pdb',
                 },
                 {
@@ -1613,7 +1613,7 @@ export default defineConfig({
                 },
                 {
                   label: '10.1.7. Sidecarless Mesh: Istio Ambient Mode and Cilium Service Mesh',
-                  translations: { tr: '10.1.7. Sidecar\'sız Mesh: Istio Ambient Modu ve Cilium Service Mesh' },
+                  translations: { tr: '10.1.7. Sidecarless Mesh: Istio Ambient Modu ve Cilium Service Mesh' },
                   slug: 'service-mesh/service-mesh-architecture/sidecarless-ambient-mesh',
                 },
               ],
@@ -1765,7 +1765,7 @@ export default defineConfig({
                 },
                 {
                   label: '11.3.2. Kubernetes Secrets: Why They Are Not Enough',
-                  translations: { tr: '11.3.2. Kubernetes Secret\'ları: Neden Yeterli Değil' },
+                  translations: { tr: '11.3.2. Kubernetes Secrets: Neden Yeterli Değil' },
                   slug: 'security/secrets-management/kubernetes-secrets',
                 },
                 {
@@ -1826,7 +1826,7 @@ export default defineConfig({
                 },
                 {
                   label: '12.1.4. Feature Flags: Decoupling Deployment from Release',
-                  translations: { tr: '12.1.4. Feature Flag\'ler: Dağıtımı Sürümden Ayırmak' },
+                  translations: { tr: '12.1.4. Feature Flags: Dağıtımı Sürümden Ayırmak' },
                   slug: 'deployment/deployment-patterns/feature-flags',
                 },
                 {
@@ -1841,7 +1841,7 @@ export default defineConfig({
                 },
                 {
                   label: '12.1.7. Zero-Downtime Database Migrations: The Expand/Contract Pattern',
-                  translations: { tr: '12.1.7. Sıfır Kesintili Veritabanı Migration\'ları: Expand/Contract Deseni' },
+                  translations: { tr: '12.1.7. Sıfır Kesintili Veritabanı Migrations: Expand/Contract Deseni' },
                   slug: 'deployment/deployment-patterns/zero-downtime-db-migrations',
                 },
               ],
@@ -1878,7 +1878,7 @@ export default defineConfig({
                 },
                 {
                   label: '12.2.5. Artifact Management: OCI Registry and Helm Charts',
-                  translations: { tr: '12.2.5. Artifact Yönetimi: OCI Registry ve Helm Chart\'ları' },
+                  translations: { tr: '12.2.5. Artifact Yönetimi: OCI Registry ve Helm Charts' },
                   slug: 'deployment/gitops-cicd/artifact-management',
                 },
                 {
@@ -2161,7 +2161,7 @@ export default defineConfig({
                 },
                 {
                   label: '13.5.4. Follower Reads and Bounded Staleness',
-                  translations: { tr: '13.5.4. Follower Read\'ler ve Bounded Staleness' },
+                  translations: { tr: '13.5.4. Follower Reads ve Bounded Staleness' },
                   slug: 'case-studies/distributed-sql/follower-reads-bounded-staleness',
                 },
               ],
@@ -2188,7 +2188,7 @@ export default defineConfig({
                 },
                 {
                   label: '13.6.3. Cloudflare 2019: The Regex That Stalled the Edge',
-                  translations: { tr: '13.6.3. Cloudflare 2019: Edge\'i Durduran Regex' },
+                  translations: { tr: '13.6.3. Cloudflare 2019: Edge Durduran Regex' },
                   slug: 'case-studies/famous-outages/cloudflare-2019-regex',
                 },
                 {
