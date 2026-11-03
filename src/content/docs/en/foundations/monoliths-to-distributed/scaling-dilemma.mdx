@@ -1,178 +1,256 @@
 ---
-title: "1.1.1. The Scaling Dilemma: Vertical vs. Horizontal Scaling"
-description: "A mechanistic analysis of vertical and horizontal scaling trade-offs, covering NUMA topology, Amdahl's Law, the Universal Scalability Law, distributed coordination overhead, and the economic inflection points that force architectural decisions."
-lastUpdated: 2026-05-13
-sidebar:
-  order: 1
+title: "The Scaling Dilemma: Vertical vs. Horizontal Scaling"
+description: "Why a bigger machine stops paying off at the serial and cache-coherence limits, why more machines stop paying off at the cross-partition and shared-fate limits, and how to measure which limit a workload will hit first."
+lastUpdated: 2026-11-03
 ---
 
-Every system eventually hits a wall. Traffic grows, data volumes accumulate, or latency requirements tighten beyond what the current hardware configuration can deliver. The response to that wall defines the entire downstream architecture: either add more capability to existing machines (**vertical scaling**, scale-up) or add more machines (**horizontal scaling**, scale-out). The choice is not aesthetic — it is determined by physics, economics, and the nature of the workload. Getting it wrong early means carrying the wrong assumptions into every subsequent architectural decision.
- 
-## Vertical Scaling: The Physics of a Single Machine
- 
-Vertical scaling means replacing or upgrading a machine with one that has more CPUs, more RAM, faster storage, or higher network bandwidth. For stateful systems — databases, caches, message brokers — this is often the path of least resistance because no application code changes, no distribution logic is required, and the consistency model remains trivially simple.
- 
-The appeal is real, but it runs directly into several hard physical limits.
- 
-### NUMA Topology and Memory Bandwidth
- 
-Modern multi-socket servers do not have uniform memory access. In a **Non-Uniform Memory Access (NUMA)** architecture, each CPU socket has its own local memory bank. A CPU accessing its local memory achieves full bandwidth (typically 100-200 GB/s on current Xeon or EPYC hardware). The same CPU accessing memory attached to a *remote* socket crosses the NUMA interconnect — Intel's UPI (Ultra Path Interconnect) or AMD's Infinity Fabric — and pays a latency penalty of 30-100 ns and a bandwidth penalty of 30-50% compared to local access.
- 
+Vertical scaling (scale-up) adds capacity to a single machine: more cores, memory, memory bandwidth, and faster storage and network interfaces. Horizontal scaling (scale-out) adds machines and divides the work among them. Both aim at the request rate a system can sustain within its latency objective, and both stop working at a point set by the workload rather than by the hardware budget. A bigger machine stops paying off when requests serialize on something inside it or when its cores spend their time keeping shared data consistent. More machines stop paying off when requests must touch several machines to complete, or when all machines still depend on one shared component.
+
+The core trade-off is where coordination happens and who pays for it. On one machine, coordination between cores is done by cache-coherence hardware in tens to hundreds of nanoseconds, invisible until it dominates the profile. Across machines, it is done by software protocols over a network whose round trips cost hundreds of microseconds inside a data center, and it shows up in latency, failure handling, the consistency model, and operational cost. Scale-up buys simplicity and strong consistency with a hard ceiling and a single failure domain; scale-out buys headroom and smaller failure units with a permanent coordination tax.
+
+A second axis is independent of capacity: how many failure domains the service must survive. Treating "add machines for capacity" and "add machines for availability" as one decision is the root of most scaling mistakes covered below. Hardware price curves are covered in [Cost-Performance Curves and Hardware Limits](/distributed-systems/en/foundations/monoliths-to-distributed/cost-performance-curves/), and the question of where state may live in [Stateful vs. Stateless Services](/distributed-systems/en/foundations/monoliths-to-distributed/stateful-vs-stateless/).
+
 ```mermaid
 flowchart LR
-    subgraph Socket0["Socket 0"]
-        CPU0[CPU Cores 0-31]
-        RAM0[RAM Bank 0\n512 GB]
-        CPU0 <-->|local ~100 GB/s| RAM0
+    subgraph PART["Partitioned scale-out"]
+        R3["Requests"] --> RT["Router"]
+        RT --> P1[("Owner of keys A-H")]
+        RT --> P2[("Owner of keys I-Z")]
     end
-    subgraph Socket1["Socket 1"]
-        CPU1[CPU Cores 32-63]
-        RAM1[RAM Bank 1\n512 GB]
-        CPU1 <-->|local ~100 GB/s| RAM1
+    subgraph OUT["Stateless scale-out"]
+        R2["Requests"] --> LB["Load balancer"]
+        LB --> A1["App 1"]
+        LB --> A2["App 2"]
+        LB --> A3["App N"]
+        A1 & A2 & A3 -->|"network, us to ms"| DB[("One shared database")]
     end
-    CPU0 <-->|remote NUMA\n~60 GB/s, +40ns| RAM1
-    CPU1 <-->|remote NUMA\n~60 GB/s, +40ns| RAM0
-    CPU0 <-->|UPI/Infinity Fabric| CPU1
+    subgraph UP["Scale-up: one machine"]
+        R1["Requests"] --> CORES["Many cores"]
+        CORES <-->|"coherence fabric, ns"| MEM["Shared memory and locks"]
+    end
 ```
-*Two-socket NUMA topology: remote memory access pays a bandwidth and latency penalty through the inter-socket interconnect.*
- 
-This matters operationally. A PostgreSQL instance on a 2-socket server with 96 cores will not linearly scale read throughput as you add cores, because cache-line transfers between sockets become a bottleneck. Database buffer pools that span NUMA boundaries cause frequent remote memory accesses. The Linux kernel's NUMA balancing heuristics mitigate but do not eliminate this, and they introduce their own CPU overhead through page migration.
- 
-Scaling to 4-socket and 8-socket machines amplifies this: every additional socket adds another hop on the NUMA mesh, and the coherency traffic required to keep CPU caches consistent across sockets grows with the square of socket count. This is why 4-socket and 8-socket machines have historically been the domain of in-memory databases (SAP HANA, VoltDB) willing to pay enormous per-core licensing costs to exploit the raw memory capacity.
- 
-### Amdahl's Law: The Ceiling on Parallelism
- 
-**Amdahl's Law** establishes the theoretical maximum speedup from adding CPU cores when a portion of the workload is inherently sequential:
- 
+*Three topologies and where the shared mutable state sits in each. Latency labels are orders of magnitude.*
+
+In the first topology, shared state is in memory and coordination is cheap but bounded by one box. In the second, the application tier has been scaled out but every request still converges on one database, so the serialization point has moved rather than disappeared; this is the most common shape of a system that "scaled horizontally" and did not get faster. Only the third removes the shared resource, by giving each key exactly one owner, and it is also the only one that introduces requests spanning owners, which is where the cost of scale-out concentrates.
+
+## The Scale-Up Ceiling: Serial Work and Coherence Traffic
+
+A larger machine raises throughput only for work that can run on its additional cores at the same time. Two separate mechanisms limit this, and they respond to different fixes. The first is queueing for an exclusive resource: a lock, a log flush, a single-threaded component. The second is the work cores do to agree on the contents of shared memory. The first flattens the throughput curve; the second bends it downward.
+
+### Serial Work and Amdahl's Ceiling
+
+If a fraction `S` of each unit of work must execute serially and the rest parallelizes perfectly over `N` cores, Amdahl's Law gives the speedup as `1 / (S + (1 - S) / N)`, bounded by `1 / S`. With 4% serial work the ceiling is 25x; eight cores deliver 6.2x, 32 cores 14.3x, and 128 cores 21.1x. Quadrupling the machine from 32 to 128 cores buys 48% more throughput, and every further core is worth less than the last.
+
+In a request-serving system, the serial fraction is rarely a single-threaded function. It is the share of each request's time spent holding something every other request also needs: a row lock on a counter, an index page latch, a write-ahead log (WAL) flush, a connection pool with too few slots. Otherwise independent requests line up behind it, and latency there rises sharply as its utilization approaches one, as analyzed in [Queueing Theory Foundations](/distributed-systems/en/resilience/flow-control/queueing-theory-littles-law/).
+
+Gustafson's Law is the corrective: Amdahl fixes the problem size, but a larger machine is usually given more independent work, and the serial part does not grow with it. Extra cores are well spent on more independent requests and badly spent on requests that serialize on one resource.
+
+### Coherence: The Cost of Sharing a Cache Line
+
+Each core keeps recently used memory in private caches, in 64-byte units called cache lines on mainstream x86 and most ARM server parts. When two cores hold copies of one line, a coherence protocol, a per-line state machine run by the cache controllers, guarantees that a write by one is seen by the other. MESI is the textbook version; Intel uses an extension called MESIF and AMD one called MOESI, but the transitions that matter for scaling are the same in all three.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Invalid
+    Invalid --> Exclusive: local read, no other copy
+    Invalid --> Shared: local read, other copies exist
+    Exclusive --> Modified: local write, no bus traffic
+    Shared --> Modified: local write, invalidate all other copies
+    Modified --> Shared: remote read, write back and share
+    Modified --> Invalid: remote write, line transferred away
+    Shared --> Invalid: remote write
+    Exclusive --> Shared: remote read
+    Modified --> Modified: local write, no bus traffic
 ```
-Speedup(N) = 1 / (S + (1 - S) / N)
-```
- 
-Where `S` is the fraction of the program that is strictly serial and `N` is the number of processors. As `N` approaches infinity, the maximum speedup approaches `1/S`.
- 
-The implication is brutal: a workload with just 5% serial code cannot be sped up by more than 20x, no matter how many cores you add. A workload with 20% serial code is capped at 5x. In practice, "serial" includes lock contention, single-threaded I/O paths, sequential log writes, and any coordination point that serializes concurrent operations.
- 
+*MESI states of one cache line as seen by one core. Transitions labeled remote are caused by another core touching the same line.*
+
+The expensive transitions move a line out of another core's cache: a core writing a line held `Modified` elsewhere must request ownership and wait for the other core to give it up. If many cores write the same line in turn (an atomic request counter, a shared reference count, a spinlock word, two unrelated hot fields on one line), the line ping-pongs between caches and each write costs a cross-core or cross-socket transfer instead of a few cycles. The case of unrelated fields sharing a line is called false sharing: the program has no logical sharing, but the hardware does. Adding cores adds more participants to this exchange, and the number of potential pairwise exchanges grows with the square of the core count.
+
+Neil Gunther's Universal Scalability Law (USL) captures both mechanisms in one expression, `C(N) = N / (1 + alpha * (N - 1) + beta * N * (N - 1))`. The contention coefficient `alpha` is the serial share; the coherency coefficient `beta` is the cost of pairwise exchanges. With `beta = 0`, the curve is Amdahl's. With any positive `beta`, throughput peaks at `N_peak = sqrt((1 - alpha) / beta)` and then declines: past the peak, more cores, threads, or concurrent connections reduce throughput. Because the `beta` term grows quadratically, a load test on a small instance says almost nothing about a large one.
+
+Production systems show both responses to `beta`. Redis executes commands on one thread, removing coherence traffic on data and accepting that one core bounds an instance; Redis 6 I/O threads parallelize only socket reads and writes, which touch no shared data. PostgreSQL runs one process per connection, and as active backends multiply, contention on shared lock and buffer-mapping structures flattens and then lowers throughput; poolers such as PgBouncer keep the active count near the peak however many clients connect.
+
+### Limits Below the Application
+
+Some scale-up ceilings sit in the operating system and network path. A single listening socket accepted by one thread serializes connection setup; Linux added `SO_REUSEPORT` in kernel 3.9 so that several sockets can bind the same port and the kernel spreads connections across them. A network interface delivering all packets to one receive queue concentrates interrupt processing on one core; Receive Side Scaling (RSS) hashes flows across several queues and cores. Memory-bound workloads can stop scaling before the CPUs are busy, because memory bandwidth does not grow in step with core count. On multi-socket machines, memory attached to the other socket is slower to reach (Non-Uniform Memory Access, NUMA), a placement problem on top of the coherence problem.
+
+:::tip[Read per-core metrics, not the machine average]
+A 96-core machine at 40% average CPU can be saturated: one core at 100% handling network interrupts or running a single-threaded component, and the rest waiting on it. Before concluding that a large machine has headroom, check per-core utilization and the run queue, and look for a component whose throughput stays constant as load rises.
+:::
+
+## The Scale-Out Ceiling: Cross-Partition Work and Shared Fate
+
+Scale-out increases throughput only if it removes a shared resource rather than moving it. Stateless application instances share nothing with one another, so adding them removes contention in the application tier, but every instance still reads and writes the same database. Past the point where the database saturates, more application instances only add connections to it, pushing it toward its own coherency peak. A system decomposed into many services that all depend on one shared store has the operational cost of a distributed system and the scaling limit of one machine; this pattern is analyzed as the [distributed monolith](/distributed-systems/en/microservice-patterns/service-decomposition/distributed-monolith/).
+
+Removing the shared resource for stateful data requires [partitioning](/distributed-systems/en/data-management/data-partitioning/): each key is owned by exactly one node, so single-key operations need no coordination with other nodes. Partitioning raises aggregate capacity, but each key's capacity is still bounded by one machine, and a key that receives a disproportionate share of traffic gains nothing from the rest of the cluster. Managed systems state this limit explicitly: DynamoDB documents a per-partition maximum of 3,000 read capacity units and 1,000 write capacity units per second, independent of the table's total provisioned throughput. Scale-out scales the sum; vertical limits still govern each part. Skewed keys are covered in [Skew and Hot-Spot Problems](/distributed-systems/en/data-management/data-partitioning/skew-hot-spots/).
+
+### The Cross-Partition Tax
+
+An operation touching several partitions needs a coordinator, extra round trips, locks held for the protocol's duration, and a recovery path; atomic multi-partition writes typically use [two-phase commit](/distributed-systems/en/coordination/distributed-transactions/two-phase-commit/) or a variant. Each such operation consumes capacity on every participant, for longer than a local one.
+
+The share of operations that cross partitions is not a constant; it depends on how keys are assigned. If an operation touches two keys and keys are placed by a uniform hash, the probability that both land on the same partition is `1 / N`, so the cross-partition fraction is `1 - 1 / N` and approaches 100% as the cluster grows. If the two keys are placed together deliberately (for example both rows of an order are partitioned by customer), the fraction stays at whatever share of operations genuinely spans customers. A simple model makes the difference visible. Assume a single-partition operation costs one unit of capacity on one node, and a two-partition operation costs two units on each of two nodes because of the prepare and commit phases and the longer lock hold (an illustrative factor). The average cost per operation is then `1 + 3f` for a cross-partition fraction `f`.
+
 ```mermaid
 xychart-beta
-    title "Amdahl's Law: Max Speedup vs. Core Count"
-    x-axis "Number of Cores" [1, 2, 4, 8, 16, 32, 64, 128]
-    y-axis "Maximum Speedup" 0 --> 25
-    line [1, 1.9, 3.5, 5.8, 8.9, 12.8, 17.2, 20.3]
-    line [1, 1.6, 2.5, 3.3, 3.8, 4.0, 4.0, 4.0]
+    title "Aggregate throughput vs. partition count (illustrative model)"
+    x-axis "Partitions N" [1, 2, 4, 8, 16, 32, 64]
+    y-axis "Throughput, single-node units" 0 --> 70
+    line [1, 2, 4, 8, 16, 32, 64]
+    line [1, 1.86, 3.6, 7.07, 14.03, 27.94, 55.77]
+    line [1, 0.8, 1.23, 2.21, 4.2, 8.19, 16.19]
 ```
-*Upper line: 1% serial fraction (approaches 100x cap). Lower line: 20% serial fraction (hard cap at 5x). Real workloads sit somewhere between these curves.*
- 
-### The Universal Scalability Law
- 
-Neil Gunther's **Universal Scalability Law (USL)** extends Amdahl's Law by adding a second penalty term for **coherency** — the overhead of keeping shared state consistent across multiple concurrent actors:
- 
-```
-C(N) = N / (1 + α(N - 1) + βN(N - 1))
-```
- 
-Where `α` is the contention parameter (serialization), `β` is the coherency parameter (crosstalk), and `N` is the number of concurrent workers. The coherency term `β` is quadratic in `N`, which means USL predicts that throughput can actually *decrease* as you add more concurrency, once coherency overhead dominates.
- 
-This is not theoretical. PostgreSQL's throughput on a single instance plateaus and then decreases past a certain connection count because lock manager overhead and shared buffer cache coherency both have `β > 0`. Connection poolers like PgBouncer exist specifically to cap `N` below the USL coherency cliff. Redis is single-threaded for the same reason: eliminating `β` entirely by serializing all operations yields better throughput than a multi-threaded design with non-zero `β`.
- 
-:::tip
-Measuring your workload's `α` and `β` parameters requires load testing with varying concurrency levels and fitting the USL curve to the data. Tools like `usl4j` (Java) or the R `usl` package automate the regression. If your throughput curve turns over and descends past a concurrency level you regularly reach in production, you have a coherency problem that more hardware will not fix.
+*Top: linear reference. Middle: related keys co-located, 5% of operations cross partitions. Bottom: two keys per operation placed by uniform hash, so 1 - 1/N of operations cross partitions. Cost factor of a cross-partition operation is illustrative.*
+
+The bottom curve dips below one node at two partitions: half of all operations suddenly pay the cross-partition cost, and the cluster delivers 0.8 units where one machine delivered 1.0. At 64 partitions it reaches only a quarter of linear scaling, because almost every operation pays four units instead of one, while the co-located curve keeps 87% of linear scaling on the same hardware. The partitioning key, not the node count, decides which curve a system is on; [co-located joins and data placement](/distributed-systems/en/data-management/data-partitioning/colocated-joins/) covers how to choose it. Co-location also bounds fan-out: a request waiting on 50 partitions, each slow once per thousand calls, meets at least one slow call with probability `1 - 0.999^50`, about 4.9%, the effect Dean and Barroso describe in *The Tail at Scale*.
+
+:::caution[Two partitions can be slower than one]
+Splitting a database in two with a hash key that separates data accessed together does not halve the load per node; it turns local operations into distributed ones. Before partitioning, measure what fraction of transactions and queries touch more than one value of the candidate key. If that fraction is large, change the key or the access pattern first.
 :::
- 
-### The Cost Curve Is Non-Linear
- 
-Cloud instance pricing for vertical scaling is not linear. Moving from a 4-core to an 8-core instance doubles compute but roughly doubles price. Moving from a 96-core general-purpose instance to a 192-core high-memory instance can cost 4-6x more for 2x the core count, because the larger SKUs are less commoditized and carry a significant premium.
- 
-The most expensive part of vertical scaling is the top end: the last doubling of capacity frequently costs 3-5x more than the previous doubling. There is a price/performance cliff around 48-64 vCPU instances on most cloud providers where general-purpose instances give way to memory-optimized or compute-optimized SKUs at premium prices. Bare-metal equivalents (required for NUMA-sensitive workloads) add another 40-80% premium on top.
- 
-There is also a **single point of failure** cost that no pricing spreadsheet captures: a single large machine is a single failure domain. When it crashes, everything on it is unavailable. Hardware RAID, redundant power supplies, and hot-standby replicas reduce but do not eliminate this risk.
- 
-## Horizontal Scaling: The Physics of a Distributed System
- 
-Horizontal scaling adds more machines and distributes the workload across them. It eliminates the single-point-of-failure problem, can scale to effectively arbitrary throughput, and uses commodity hardware at the cheap end of the price/performance curve. It introduces an entirely different category of problems in exchange.
- 
-### The Network Is Now the Bottleneck
- 
-On a single machine, inter-component communication is in-process function calls operating at ~1 ns. Horizontal scaling replaces those calls with network round trips. A same-rack round trip on a 10 GbE network is ~100 µs under unloaded conditions. Cross-AZ traffic within a cloud region adds 1-3 ms. Cross-region adds 30-300 ms depending on geography.
- 
-These numbers dominate the performance profile of distributed systems. A single database query that takes 1 ms on local hardware takes 3-5 ms in a distributed configuration that requires network coordination, simply due to the latency of the round trips. Any operation that requires multiple sequential round trips — and most non-trivial database operations do — pays this cost multiplicatively.
- 
+
+### Replicas Add Failure Tolerance, Not Write Capacity
+
+Replication obeys a different rule. In a leader-based or consensus group such as [Raft](/distributed-systems/en/coordination/consensus-algorithms/raft/), every member stores every write. Growing a Raft group from three to five members raises the number of tolerated failures from one to two and the commit quorum from two to three; the write capacity stays that of one leader, and commit latency can only rise. Read replicas add read capacity at the price of [replication lag](/distributed-systems/en/data-management/replication/replication-lag/). Systems that need both durability and write capacity run many small groups, one per partition: Kafka partitions with their in-sync replica sets, CockroachDB ranges, TiKV regions. Capacity comes from the number of groups; fault tolerance comes from the size of each.
+
+## Worked Example: One Orders Database, Two Futures
+
+Assume an orders service whose primary database runs on a 32-vCPU machine and sustains 6,000 writes per second at its latency objective. Peak traffic grows 4% per month. All numbers in this section are illustrative.
+
+A load test at concurrency levels from 1 to 128 fits USL coefficients `alpha = 0.02` and `beta = 0.0002`. Relative capacity is `C(32) = 32 / (1 + 0.02 * 31 + 0.0002 * 32 * 31) = 17.60`, so one capacity unit corresponds to about 341 writes per second. The curve peaks at `N_peak = sqrt(0.98 / 0.0002) = 70`, with `C(70) = 20.92`.
+
+The vertical option is a 64-vCPU machine: `C(64) = 20.87`, about 7,100 writes per second, 18.6% more than today for roughly twice the hourly price. At 4% monthly growth that gain lasts `ln(1.186) / ln(1.04)`, about 4.3 months. A 96-vCPU machine is worse, `C(96) = 20.32` or about 6,900 writes per second, because it sits past the peak.
+
+The horizontal option is eight partitions by `customer_id`, each on a 16-vCPU machine. Each partition runs at lower concurrency, on the efficient part of the same curve: `C(16) = 11.87`, about 4,050 writes per second. Two corrections apply. 3% of writes touch two customers (transfers between accounts), costing `1 + 3 * 0.03 = 1.09` units on average. And the largest customer generates 6% of all writes, so its partition carries `0.94 / 8 + 0.06 = 17.75%` of total traffic instead of 12.5%. The hottest partition saturates first, so the system's limit is `4,050 / (0.1775 * 1.09)`, about 20,900 writes per second. That is 3.5 times today's load, or about 32 months of growth.
+
+The failure arithmetic is less obvious. With one primary, every failover makes all writes unavailable. With eight, a failure affects 12.5% of customers (17.75% of writes for the hot partition), but eight machines can fail, so failovers happen about eight times as often. Expected write-minutes lost per year are roughly unchanged; partitioning changes the blast radius of each incident and the number of incidents, which matters only if the availability objective is defined per customer rather than fleet-wide.
+
+The comparison is therefore not 7,100 against 20,900. It is 4 months of runway at low engineering cost against 32 months at the cost of a routing layer, a resharding procedure, a cross-partition write path, a plan for the 6% customer, and eight times as many failovers. If the team cannot deliver the partitioned design within the 4-month runway, the 64-vCPU machine is the right purchase today and the partitioned design is the right project to start the same day.
+
+## Comparing the Strategies
+
+The strategies commonly grouped under "horizontal" behave very differently, so the table separates them.
+
+| Strategy | What grows | What does not grow | Unit of failure | When to prefer |
+|---|---|---|---|---|
+| Vertical, one node | Cores, memory, IOPS on one box | The serial share and coherency cost; capacity past `N_peak` | The whole service | Measured `beta` is small, the largest affordable machine covers the planning horizon, and strong single-node consistency matters |
+| Stateless scale-out | Compute for independent requests | Capacity of shared downstream dependencies | One instance | Requests share no mutable state and the shared dependency has measured headroom |
+| Partitioned scale-out | Aggregate storage and write throughput | Per-key and per-partition capacity | One partition | Data or writes exceed one machine and most operations touch one partition key |
+| Replicated group | Read capacity (followers), fault tolerance | Write capacity of the leader | Tolerates a minority of members | Durability and failover for one partition or for coordination data |
+| Diagonal: few large partitioned nodes | Both, with fewer coordination participants | Rebuild time of each node | One large node | Throughput-heavy stateful systems where node count drives coordination cost |
+
+Diagonal scaling has its own bound: the cost of losing a node grows with its size. A node holding 8 TB that rebuilds from peers at an effective 250 MB/s (illustrative, after throttling to protect live traffic) needs about nine hours with one replica fewer than designed. In replicated storage, rebuild time rather than CPU usually caps node size.
+
+### Measuring Which Limit You Will Hit
+
+The USL coefficients come from measurement. Run a closed-loop load test at increasing concurrency, record throughput at a fixed latency objective, and fit `C(N)` by nonlinear regression as described in Gunther's *Guerrilla Capacity Planning*. Include points beyond the knee of the curve: if every point lies below `N_peak`, a large `alpha` and a small `beta` fit equally well and the forecast for a larger machine is a guess.
+
+Contention shows up as flat throughput with CPU partly idle and threads blocked; coherency as falling throughput with CPU saturated and cycles spent in atomics and spin loops; cross-partition cost as coordinator latency growing with partition count. On Linux:
+
+```shell
+# Per-core utilization: look for single cores pinned at 100% (interrupts, one hot thread)
+mpstat -P ALL 1 5
+# Voluntary vs. involuntary context switches per thread: high voluntary = blocking
+pidstat -w -t -p "$PID" 1 5
+# Cache-to-cache transfers of contended lines (true and false sharing)
+perf c2c record -p "$PID" -- sleep 10
+perf c2c report --stdio | head -60
+# Distribution of incoming connections and receive queues across cores
+grep -E 'eth0|ens' /proc/interrupts
+```
+
+`perf c2c` is the most direct evidence of coherency cost: it reports cache lines frequently transferred between cores in modified state, with the code locations and data offsets responsible, enough to tell a contended counter from two fields that need padding onto separate lines.
+
+## Failure Modes and How They Present
+
+Vertical failures are often mistaken for capacity shortages; horizontal ones often hide behind healthy averages.
+
+### Retrograde Throughput After an Upgrade
+
+Trigger: a coherency-bound workload moves to a larger machine, or its pool limit is raised, pushing active concurrency past `N_peak`. Symptoms: throughput flat or lower at the same load, higher CPU, earlier latency rise. Detection: throughput per active session before and after, `perf c2c` transfer counts, lock-wait time in the database's wait-event views. Mitigation: cap active concurrency at the measured peak with a connection pooler or admission queue, and roll back if needed. Recovery is fast once concurrency is capped, but the root fix is design work that lowers `beta`: striped locks, per-core counters summed on read, padding hot fields onto separate cache lines, partitioning a hot table.
+
 ```mermaid
-flowchart LR
-    subgraph Single["Single Machine"]
-        direction TB
-        App1[Application] -->|function call ~1ns| DB1[Database Engine]
-    end
-    subgraph Distributed["Distributed (Same AZ)"]
-        direction TB
-        App2[Application Server] -->|TCP/IP ~100us| DB2[Database Node]
-    end
-    subgraph CrossAZ["Distributed (Cross-AZ)"]
-        direction TB
-        App3[Application Server\nAZ-1] -->|TCP/IP ~2ms| DB3[Database Node\nAZ-2]
+timeline
+    title Illustrative incident after moving a primary from 32 to 96 vCPU
+    Day 0 : Migration completes during low traffic
+          : Pool limit raised from 300 to 900 to use the new cores
+    Day 1 morning : Peak traffic arrives
+                  : CPU 90 percent and throughput 5 percent below the old machine
+    Day 1 midday : Retries raise active sessions further
+                 : p99 latency triples and upstream timeouts begin
+    Day 1 afternoon : Pool limit cut back to 300
+                    : Throughput recovers above the old baseline
+    Week 2 : Contended counter row replaced by sharded counters
+           : Load test repeated and new peak recorded
+```
+*A hypothetical timeline showing the shape of a coherency regression; not a real incident.*
+
+The migration looks successful in low traffic because `beta` is small at low concurrency. At peak, more cores admit more active sessions, which is what moves the system past its peak, and retries then raise concurrency further: a feedback loop that can outlive the load spike, described as a metastable failure in [Retry Storms and Metastable Failures](/distributed-systems/en/resilience/flow-control/retry-storms-metastable-failures/). The fix that works within hours is not more hardware but less concurrency.
+
+### Shared Fate on a Large Machine
+
+Trigger: one workload on a vertically scaled node consumes a shared resource, such as an analytical query evicting the buffer cache or a compaction saturating disk bandwidth. Symptoms: every tenant and endpoint degrades at once. Detection: saturation (disk queue depth, memory pressure, cache hit ratio) correlated with one session or job. Mitigation: isolation inside the node (separate pools, cgroup limits, query timeouts) or moving the workload to a replica, the [bulkhead](/distributed-systems/en/resilience/protection-patterns/bulkhead-pattern/) principle applied within one machine. A large machine concentrates performance failures, not only crashes, into one failure domain.
+
+### Connection Storms During Scale-Out
+
+Trigger: an autoscaler adds instances and each opens its full connection pool to the shared database. Symptoms: the database rejects connections or slows down exactly when the tier grows, and new instances fail readiness checks, prompting the autoscaler to add more.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as Traffic
+    participant H as Autoscaler
+    participant A as App instances
+    participant D as Shared database
+    U->>A: Load rises, 40 instances at high CPU
+    H->>A: Scale from 40 to 120 instances
+    A->>D: 80 new instances open 20 connections each
+    Note over D: 2400 connections vs. limit of 1000, new connections rejected
+    D-->>A: Connection errors, slow authentication and backend startup
+    A->>A: Readiness probes fail, requests retried
+    H->>A: CPU still high, scale further
+    rect rgb(70, 40, 40)
+    Note over A,D: Scale-out raised load on the one component that did not scale
+    A->>D: Existing instances time out and reconnect
     end
 ```
-*Latency increase from intra-process to intra-AZ to cross-AZ communication: five orders of magnitude.*
- 
-### State Is the Enemy of Horizontal Scale
- 
-**Stateless** components scale horizontally without coordination: add more instances behind a load balancer, and throughput increases linearly (modulo shared downstream dependencies). Any instance can handle any request. This is why HTTP application servers, API gateways, and compute workers scale horizontally so easily.
- 
-**Stateful** components require that related requests reach the same instance, or that state be synchronized across instances. Both paths impose coordination overhead. Synchronizing state requires consensus protocols, replication lag management, and conflict resolution strategies. Sticky routing requires session affinity at the load balancer, which breaks when instances fail.
- 
-The fundamental tension: **horizontal scaling of stateful systems is always a distributed systems problem**. It requires explicit decisions about consistency (what happens when two replicas disagree?), availability (what happens during a network partition?), and partition tolerance (how is state divided?). These are not engineering details — they are the defining characteristics of every distributed database, cache, and message broker ever built.
- 
-:::caution
-"Just add more nodes" applied to a stateful service without rearchitecting the state management layer does not produce linear scale. It typically produces a distributed monolith: the operational complexity of a distributed system with the scaling properties of a single machine, because all nodes still serialize through a shared database.
+*Autoscaling against a shared database. Counts are illustrative.*
+
+Steps 2 and 3 are the trap: the autoscaler measures CPU on the tier that does not need help and acts in a way that loads the database; by step 7 the control loop amplifies the failure. Detection: database connections against the limit and connection-establishment rate, plotted with the replica count. Mitigation: size pools from the database side, put a transaction-mode pooler in between, cap the autoscaler's maximum replicas and rate of change, and scale on a signal that reflects the real bottleneck. Autoscaler behavior and stabilization settings are covered in [HPA and KEDA](/distributed-systems/en/kubernetes/fundamentals/hpa-keda/).
+
+### Summary of Failure Signatures
+
+| Failure | Path | Symptom from outside | Detection signal | Mitigation |
+|---|---|---|---|---|
+| Retrograde throughput | Vertical | Bigger machine is slower at peak | Throughput per active session falls; `perf c2c` transfers rise | Concurrency cap at `N_peak`; reduce `beta` |
+| Hidden single core | Vertical | Latency rises at low average CPU | One core at 100% in `mpstat`; unbalanced `/proc/interrupts` | RSS, `SO_REUSEPORT`, removing the single-threaded stage |
+| Shared fate | Vertical | Everything degrades together | Saturation correlated with one job | In-node isolation, offload to replica |
+| Hot partition | Horizontal | One partition saturated, cluster average healthy | Per-partition throughput and latency | Split or salt the key, cache the hot key |
+| Cross-partition collapse | Horizontal | Adding partitions does not raise throughput | Cross-partition fraction and coordinator latency growing with `N` | Change the partition key, co-locate related data |
+| Connection storm | Horizontal | Database fails as the app tier grows | DB connections vs. limit, replica count | Pooler, pool sizing from the DB side, autoscaler caps |
+| Split brain | Both, during failover | Divergent writes on two primaries | Two nodes claiming leadership | Quorum election and fencing |
+
+Split brain is the only entry that corrupts data rather than degrading service; it is covered in [Split Brain and Fencing](/distributed-systems/en/coordination/consensus-algorithms/split-brain-fencing/) and, for database failover specifically, in [Failover and Leader Election](/distributed-systems/en/data-management/replication/failover-leader-election/). The hot-partition mode in a managed store is examined in [The Hot Partition Problem](/distributed-systems/en/case-studies/dynamodb-cassandra/hot-partition-problem/).
+
+## Choosing Deliberately
+
+The decision rests on three measurements and one requirement: where requests serialize, how large `beta` is, what fraction of operations would cross partitions under the best available key, and how many failure domains the service must survive.
+
+Scale up when the bottleneck is a stateful component with small measured `beta`, when the largest machine you will buy gives a runway longer than the time to build a partitioned alternative, and when single-node transactional semantics are worth more than horizontal headroom. OLTP relational databases are the standard case; Stack Overflow has written publicly about serving its main sites from a few large SQL Server machines for many years. McSherry, Isard, and Murray's *Scalability! But at what COST?* showed single-threaded programs on one machine beating several published distributed graph-processing results, a reason to compare any cluster with the best single-machine baseline.
+
+Do not scale up when the measured curve is near or past its peak at the target concurrency, when growth exhausts the largest available machine within the planning horizon, or when the availability objective cannot be met by one primary plus a standby in another zone.
+
+Scale out when requests are independent or a partition key keeps cross-partition operations rare, when data volume or write throughput exceeds one machine, when users in several regions need local latency, or when data must reside in specific jurisdictions. Vitess, which grew out of YouTube's MySQL sharding, and Kafka, whose partitions are the unit of placement and consumer parallelism, scale with partition count because their common operation touches one partition.
+
+Do not scale out to fix a hot key, because its traffic still lands on one owner; to raise write throughput by adding replicas, because every replica does the same work; to relieve a saturated database by adding application instances; or speculatively, before any of the conditions above exist. A system built for horizontal scale from day one pays for routing, resharding, and partial-failure handling when traffic is lowest and iteration speed matters most. A [modular monolith](/distributed-systems/en/microservice-patterns/service-decomposition/modular-monolith/) with clear data ownership keeps the partitioning option open without paying for it early.
+
+:::note[Capacity and availability are separate purchases]
+A service may need one machine for capacity and three for availability, or forty for capacity and still have one shared database as its availability ceiling. Size capacity against measured throughput curves and size redundancy against the failure domains the objective requires. Replicas bought for failover count as capacity only if they serve traffic and the system can still meet its objective after one of them is lost.
 :::
- 
-### Coordination Overhead Grows With Node Count
- 
-Every node added to a distributed system increases the communication overhead for operations that require coordination — leader election, distributed locking, quorum writes, two-phase commit, and gossip-based membership protocols. The worst case is O(N²) message complexity (all-to-all coordination), which is why large-scale systems use gossip protocols (O(N log N)) or hierarchical coordination (O(log N)) rather than full mesh coordination.
- 
-This is the distributed systems equivalent of the USL coherency penalty: adding more nodes to a system with high coordination requirements eventually causes throughput to plateau or decrease. The Raft consensus algorithm, for example, requires a quorum of (N/2 + 1) nodes to acknowledge each write; as N grows, write latency increases because you must wait for more ACKs to arrive over the network.
- 
-## The Scaling Decision Matrix
- 
-Neither approach dominates in all scenarios. The decision is driven by workload characteristics, operational constraints, and cost tolerance.
- 
-| Dimension | Vertical Scaling | Horizontal Scaling |
-|---|---|---|
-| **Complexity to implement** | Low — no code changes | High — requires stateless or distributed state design |
-| **Maximum throughput ceiling** | Hard physical limit (~192 cores, ~24 TB RAM on current hardware) | Effectively unbounded with correct sharding |
-| **Latency profile** | Low — in-process communication | Higher — network round trips add ~100 µs to ms per hop |
-| **Failure blast radius** | Total — single machine failure is total outage | Partial — N-1 machines survive any single node failure |
-| **Cost curve** | Linear to superlinear — premium for large SKUs | Linear — commodity hardware at consistent price/performance |
-| **State management** | Trivial — no distribution required | Complex — requires explicit consistency model |
-| **Operational overhead** | Low — one machine to manage | High — service discovery, health checking, distributed config |
-| **Suitable workloads** | Latency-sensitive, stateful, low-to-medium throughput | High-throughput, embarrassingly parallel, read-heavy with caching |
- 
-## The Pragmatic Path: Scale Up First, Then Scale Out
- 
-In practice, the most operationally sound strategy for early-stage systems is to scale vertically until the cost or physical limit forces a horizontal redesign. A well-configured single PostgreSQL server on a 32-core, 256 GB RAM machine with NVMe SSDs handles workloads that would surprise most engineers who have never measured it: 10,000-50,000 queries per second on a properly indexed read-heavy workload, with sub-millisecond 99th-percentile latency.
- 
-The forcing function for horizontal scaling is not "big company uses microservices, therefore I should too." It is one or more concrete constraints:
- 
-- **Throughput exceeds what a single machine can sustain**, even with all reasonable vertical options exhausted.
-- **Fault tolerance requirements** are incompatible with a single point of failure — an SLA that mandates 99.99% availability requires at least N+1 redundancy, which requires horizontal distribution.
-- **Geographic distribution** is required — users in multiple continents need sub-100ms latency, which no single datacenter can provide.
-- **Data volume exceeds single-machine storage** — active datasets larger than ~40 TB on a single NVMe-backed instance exceed practical vertical limits.
-- **Regulatory requirements** mandate data residency in specific jurisdictions, forcing geographic distribution.
-The mistake is making the horizontal scaling decision speculatively, before any of these constraints are real. A system designed for horizontal scale from day one carries all the distributed systems complexity — coordination protocols, eventual consistency handling, partial failure management — during the phase when development speed matters most and traffic is lowest.
- 
-:::note
-The "diagonal" scaling pattern — scale up individual nodes while also scaling out the number of nodes — is used by systems like Kafka and Cassandra. Each broker/node is large (32-64 cores, high RAM, NVMe storage) to maximize single-node throughput and minimize coordination overhead, while the cluster as a whole scales horizontally by adding more such nodes. This approach gets the most out of both strategies.
-:::
- 
-## Failure Modes Specific to Each Strategy
- 
-**Vertical scaling failure modes:**
-- **Single-point-of-failure outage:** The machine crashes, the entire service is unavailable until it restarts or a standby is promoted. For database primaries, cold restart time can be minutes to hours on large instances due to InnoDB/PostgreSQL crash recovery and buffer pool warming.
-- **Resource saturation with no incremental relief:** When a vertical-scaled system reaches its capacity limit, there is no "add one more unit of capacity" option short of a full hardware upgrade, which typically requires maintenance downtime.
-- **NUMA-induced performance cliffs:** A workload that accidentally crosses NUMA boundaries can experience sudden performance degradation that looks like a software bug but is a hardware topology issue, diagnosable only with `numastat` and NUMA-aware profiling.
-**Horizontal scaling failure modes:**
-- **Partial failure states:** N nodes can be in N different states simultaneously — some up, some down, some partitioned, some returning stale data. Handling partial failures correctly is the fundamental engineering challenge of distributed systems.
-- **Thundering herd on node recovery:** When a node rejoins the cluster, other nodes may immediately attempt to synchronize state, transferring large amounts of data simultaneously. This can saturate network bandwidth and cause cascading load on the recovering node.
-- **Coordinator bottlenecks:** Any operation that requires centralized coordination (distributed locking, global sequence generation, single-leader writes) creates a bottleneck that does not scale horizontally. Systems designed with the assumption of "just add more nodes" often contain hidden coordinator singletons that become the actual scaling limit.
-- **Split-brain on network partition:** If a network partition isolates a subset of nodes, those nodes may continue accepting writes, creating divergent state that must be reconciled or discarded when the partition heals.
-See [Failure Models](/distributed-systems/en/foundations/system-models/failure-models/) for a systematic taxonomy of distributed system failure modes.
-See [The 8 Fallacies of Distributed Computing](/distributed-systems/en/foundations/monoliths-to-distributed/eight-fallacies/) for the assumptions that break when moving from vertical to horizontal scale.
+
+## Further Reading
+
+- Gene M. Amdahl, *Validity of the Single Processor Approach to Achieving Large Scale Computing Capabilities*, AFIPS Spring Joint Computer Conference, 1967.
+- John L. Gustafson, *Reevaluating Amdahl's Law*, Communications of the ACM, 1988.
+- Neil J. Gunther, *Guerrilla Capacity Planning*, Springer, 2007.
+- Paul E. McKenney, *Is Parallel Programming Hard, And, If So, What Can You Do About It?*, kernel.org (continuously revised).
+- Jeffrey Dean and Luiz André Barroso, *The Tail at Scale*, Communications of the ACM, 2013.
+- Frank McSherry, Michael Isard, and Derek G. Murray, *Scalability! But at what COST?*, USENIX HotOS, 2015.
