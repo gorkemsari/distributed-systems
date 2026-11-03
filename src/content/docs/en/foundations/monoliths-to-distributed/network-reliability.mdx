@@ -1,327 +1,283 @@
 ---
-title: "1.1.5. Network Reliability, Bandwidth Limitations, and Topology Changes"
-description: "A hardware-grounded analysis of packet loss mechanisms, TCP's behavior under congestion, the physical structure of datacenter and cloud network topologies, and how topology changes during failures and operations produce correlated outages."
-lastUpdated: 2026-05-13
-sidebar:
-  order: 5
+title: Network Reliability, Bandwidth Limitations, and Topology Changes
+description: "How packets are lost and how TCP converts loss into tail latency, which bandwidth limit actually binds a flow, how routing and middlebox state make topology changes visible to applications, and why real partitions are partial and asymmetric."
+lastUpdated: 2026-11-03
 ---
 
-Network reliability is not a binary property. A network is not "up" or "down" — it operates on a continuous spectrum of partial degradation: packets are delayed, reordered, duplicated, and silently dropped at rates that vary by path, load, hardware health, and time of day. Distributed systems that treat the network as either fully functional or completely absent fail in production because the worst failures are not total — they are partial, intermittent, and often invisible to the applications experiencing them.
- 
-Understanding the network requires understanding it at three levels simultaneously: the physical layer (cables, switches, NICs), the protocol layer (TCP congestion control, retransmission, head-of-line blocking), and the topology layer (how components are connected and how those connections change over time). Failures at each layer have distinct signatures and require distinct responses.
- 
-## The Physical Layer: Where Packets Actually Die
- 
-Packet loss begins at hardware. The mechanisms are mundane but the consequences for distributed systems are severe.
- 
-**NIC ring buffer overflow.** A Network Interface Card maintains a fixed-size ring buffer in host memory for received packets. When the kernel's interrupt handler cannot drain this buffer fast enough — during CPU saturation, high-interrupt-rate events, or NUMA-local memory contention — the buffer overflows and incoming packets are silently dropped. The NIC increments a hardware counter (`rx_missed_errors`, visible via `ethtool -S <interface>`), but no ICMP error is generated, no TCP notification is sent, and the application has no direct visibility into the loss.
- 
-**Switch buffer congestion.** Network switches have finite input and output queues. When traffic arrives faster than it can be forwarded — due to an oversubscribed uplink, a traffic burst, or a slow consumer on the egress port — the queue fills and tail-drop discards additional packets. Modern switches use WRED (Weighted Random Early Detection) to discard packets probabilistically before queues fill, preferring to drop individual TCP flows early rather than causing global TCP synchronization collapse when all queues fill simultaneously.
- 
-**Physical media errors.** Fiber optic transceivers degrade over time, producing elevated bit error rates before complete failure. A transceiver operating at 10⁻⁹ BER (one bit error per billion transmitted bits) on a 10 Gbps link produces approximately 10 errors per second — low enough to be corrected by FEC (Forward Error Correction) at the physical layer, but degrading enough that TCP retransmissions become noticeable. The signature in the application layer is elevated p99 latency with no apparent cause in application metrics.
- 
-**Silent data corruption.** Network hardware, particularly at high line rates, occasionally delivers packets with corrupted content that passes the Ethernet CRC check. This occurs due to bit flips in switch ASICs, DRAM bit errors in packet buffers, and transient electrical interference. TCP checksums are 16-bit and do not provide cryptographic integrity — they catch most but not all corruption. Applications that require data integrity over unreliable network paths must implement application-layer checksums (CRC32, xxHash) on payload content independent of transport-layer guarantees.
- 
-```mermaid
-flowchart TD
-    Sender["Sender NIC\n10 Gbps"] -->|packet| Switch1["ToR Switch\n48-port 10GbE\nwith finite buffer"]
-    Switch1 -->|oversubscribed uplink| Spine["Spine Switch\n100 Gbps uplink\n4:1 oversubscription"]
-    Spine -->|burst congestion| Switch2["ToR Switch\nDest Rack"]
-    Switch2 -->|NIC ring buffer| Receiver["Receiver NIC\nring buffer: 4096 slots\ndrop on overflow"]
- 
-    Switch1 -->|tail-drop on queue full| Loss1([Packet Lost\nno notification])
-    Receiver -->|rx_missed_errors++| Loss2([Packet Lost\nno notification])
-    Switch1 -->|FEC correctable| Corrupt1([Bit error corrected])
-    Switch1 -->|FEC uncorrectable| Corrupt2([Corrupt packet delivered\npasses Ethernet CRC?])
-```
-*Four loss and corruption points across a two-hop datacenter path: none of them generate ICMP errors visible to the application.*
- 
-## TCP Under Stress: What the Protocol Does When the Network Fails
- 
-TCP's reliability mechanisms — retransmission, flow control, congestion control — are designed for a world where packet loss is the primary congestion signal. Understanding what these mechanisms do under realistic network stress is prerequisite knowledge for designing distributed systems that behave predictably under load.
- 
-### Congestion Control and Its Failure Modes
- 
-TCP congestion control assumes that packet loss is caused by congestion, not by random physical errors. When a loss is detected (via duplicate ACKs or RTO expiry), TCP cuts its congestion window, reducing throughput. On high-quality datacenter networks where random loss rates are low, this assumption is reasonable. On WAN paths with higher natural loss rates, or on heavily loaded datacenter networks, TCP may misinterpret physical-layer errors as congestion, causing unnecessary throughput reduction.
- 
-**TCP Slow Start** begins every new connection at a congestion window of 1-10 MSS (Maximum Segment Size, typically 1,460 bytes) and doubles it every RTT until it reaches the slow-start threshold. For a connection with 1 ms RTT and 10 MSS initial window, reaching 1 MB/s throughput requires approximately 8-10 RTTs, or about 10 ms. On a 200 ms cross-region RTT, reaching the same throughput requires 8-10 RTTs × 200 ms = 1.6-2 seconds. This is why short-lived HTTP connections over high-latency paths perform poorly for large transfers — TCP spends most of the connection's lifetime in slow start.
- 
-**TCP Head-of-Line Blocking.** TCP delivers data in order. A single lost packet causes all subsequent data in the receive buffer to be held until the lost packet is retransmitted and received. On a 10 ms RTT connection with a 1% loss rate, a 1 MB transfer that triggers one retransmission experiences a ~10 ms stall for a ~10 MB/s nominal throughput stream — negligible in isolation but catastrophic when multiplied across many concurrent streams on a busy node.
- 
-HTTP/2 multiplexes many logical streams over a single TCP connection. A single packet loss triggers TCP's head-of-line blocking for all multiplexed streams simultaneously — a problem HTTP/2 was supposed to solve but instead moved to a lower layer. HTTP/3 over QUIC eliminates this by implementing per-stream reliability directly in UDP, so a loss on one stream does not stall others.
- 
+A data center or wide-area network is a set of shared queues connected by links, run by routing software that can change the path between two hosts at any moment. It provides no delivery guarantee: an IP packet can be dropped, delayed, reordered, duplicated, or corrupted, and the network does not tell the sender which. Everything an application experiences as a "reliable connection" is built on top by TCP (Transmission Control Protocol) or QUIC, and those protocols do not remove unreliability. They convert it into something else: lost packets become delay, insufficient capacity becomes reduced throughput, and a path that disappears becomes a connection that hangs or is reset.
+
+That conversion is the core trade-off of this page. A transport that retransmits until data gets through buys correctness, in-order bytes or a broken connection, at the cost of timeliness, and its recovery timers are tuned for the internet rather than for a data center where a round trip costs a fraction of a millisecond. The network itself makes a second trade: redundant paths (many equal-cost links, rerouting around failures) buy capacity and fault tolerance at the cost of paths that change without warning, which matters as soon as anything on the path keeps per-connection state.
+
+The assumptions that make engineers ignore these mechanisms are the subject of [The 8 Fallacies of Distributed Computing](/distributed-systems/en/foundations/monoliths-to-distributed/eight-fallacies/); per-instance provider allowances are in [Cost-Performance Curves and Hardware Limits](/distributed-systems/en/foundations/monoliths-to-distributed/cost-performance-curves/); the formal models of an unreliable network are in [Network Models](/distributed-systems/en/foundations/system-models/network-models/).
+
+## Packet Loss: Where It Comes From and How TCP Turns It Into Latency
+
+Packets are lost for four reasons that leave different traces. Congestion loss happens when a switch port's buffer fills because packets arrive faster than the link drains them; it is the signal TCP uses to find the available rate, and it correlates with load. Corruption loss happens when a faulty optic, cable, or line card flips bits and the receiver discards the frame; it is independent of load and shows up as CRC (cyclic redundancy check) error counters on one interface. Policy loss happens when a device decides not to forward: a firewall rule, a full connection-tracking table, a provider allowance. Failure loss happens between the death of a link or device and the moment routing moves traffic away from it.
+
+TCP guarantees that the application reads the bytes the sender wrote, in order, or that the connection eventually reports an error. It does not guarantee when the bytes arrive, that a byte acknowledged by the remote kernel was processed by the remote application, or that a broken connection is detected promptly. The receiver acknowledges the highest byte it has received contiguously, so a gap shows up at the sender as acknowledgments that stop advancing, and the sender recovers in one of two ways whose cost differs by orders of magnitude.
+
 ```mermaid
 sequenceDiagram
-    participant Client
-    participant Server
- 
-    Client->>Server: TCP SYN
-    Server-->>Client: SYN-ACK
-    Client->>Server: ACK + Data (window=10 MSS)
-    Server-->>Client: ACK (window doubled to 20 MSS)
-    Client->>Server: Data (20 MSS)
-    Server-->>Client: ACK (window doubled to 40 MSS)
-    Note over Client,Server: Slow Start: window doubles each RTT
-    Note over Client,Server: At 200ms RTT: ~2s to reach full throughput
- 
-    Client->>Server: Data (packet N lost)
-    Client->>Server: Data (packet N+1)
-    Client->>Server: Data (packet N+2)
-    Server-->>Client: DUPACK for N
-    Server-->>Client: DUPACK for N
-    Server-->>Client: DUPACK for N
-    Note over Client,Server: 3 DUPACKs: Fast Retransmit triggered
-    Note over Client,Server: Congestion window halved: throughput drops 50%
-    Client->>Server: Retransmit packet N
+    autonumber
+    participant S as Sender
+    participant R as Receiver
+    rect rgba(60, 140, 60, 0.12)
+    Note over S,R: Case A: loss in the middle of a window
+    S->>R: Segment 1
+    S--xR: Segment 2 lost
+    S->>R: Segments 3, 4, 5
+    R->>S: ACK 1, then three duplicate ACK 1
+    S->>R: Fast retransmit of segment 2, about one RTT later
+    end
+    rect rgba(200, 60, 60, 0.12)
+    Note over S,R: Case B: loss of the last segment of a response
+    S--xR: Final segment lost
+    Note over S: No later segments, so no duplicate ACKs
+    Note over S: Wait for retransmission timeout, at least 200 ms on Linux
+    S->>R: Retransmit after RTO
+    end
 ```
-*TCP slow start and congestion response: window growth is exponential during slow start; loss causes an immediate 50% throughput reduction.*
- 
-### TCP Timeout vs. RST: Different Failure Signatures
- 
-Applications experience TCP failures in two qualitatively different ways, and confusing them leads to incorrect retry strategies.
- 
-**TCP RST (connection reset):** The remote peer or a middlebox actively terminates the connection by sending a RST segment. This is an immediate signal — the application receives an error synchronously. Common causes: the remote process crashed and the OS sent RST on cleanup; a firewall or NAT device timed out the connection state and sent RST when the next packet arrived; a load balancer removed the backend and rejected the connection.
- 
-**TCP timeout:** No RST is received. The sending side retransmits multiple times according to its retransmission timer schedule (approximately 1s, 2s, 4s, 8s, 16s in standard exponential backoff), then declares the connection dead after the retransmission limit is reached. On Linux, the default `tcp_retries2` is 15, which can cause TCP to attempt retransmission for up to ~924 seconds before giving up. Applications that rely on OS-level TCP timeouts for failure detection will hold threads and connections for this entire duration.
- 
-:::danger
-Never rely on the OS TCP timeout for distributed system failure detection. Set explicit application-level timeouts on every network call. The OS may spend up to 15 minutes retransmitting before declaring a connection dead. At the application level, a 2-30 second timeout is the maximum acceptable window for any synchronous service call, depending on the SLO requirements of the calling service.
-:::
- 
-The correct failure detection strategy is: application-level timeout (2-30s) → circuit breaker opens after threshold failures → health checks detect and remove unhealthy instances → DNS or service registry propagates updated routing.
- 
-## Bandwidth: The Topology of Constraints
- 
-Bandwidth in datacenter and cloud environments is not uniform. Available bandwidth between any two components depends on the path between them, the oversubscription ratios at each hop, and the current utilization on shared links.
- 
-### Datacenter Network Topology
- 
-Modern datacenter networks follow a **Clos (fat-tree) topology**: multiple layers of switches with full-mesh interconnection between adjacent layers. The design goal is **bisectional bandwidth** — the total bandwidth available across any partition of the network into two halves should equal the aggregate input bandwidth. A perfect fat-tree achieves 1:1 oversubscription.
- 
-In practice, datacenters accept oversubscription at the ToR (Top-of-Rack) to spine layer in exchange for lower hardware cost. A 4:1 oversubscription means four times more bandwidth is available from servers to the ToR switch than the ToR has in uplink capacity to the spine. Under typical traffic patterns (bursty, not all-active simultaneously), this is acceptable. When all servers in a rack simultaneously send large transfers — during Spark shuffle phases, database backup jobs, or bulk data migrations — the oversubscribed uplink becomes the bottleneck and all traffic on that rack suffers.
- 
+*Two ways TCP recovers a lost segment. Fast retransmit costs about one round trip; a retransmission timeout costs hundreds of round trips inside a data center.*
+
+In case A, segments after the lost one keep arriving, each producing a duplicate acknowledgment for the last contiguous byte (step 4). Three duplicates tell the sender that one segment is missing while later ones got through, so it retransmits immediately (step 5), and selective acknowledgments (SACK) let it repair several holes in one round trip. The cost is roughly one RTT (round-trip time). In case B there are no later segments, so no duplicates arrive, and the sender must wait for its retransmission timeout (RTO). RFC 6298 computes the RTO from a smoothed RTT plus four times its mean deviation, but clamps it: Linux uses a floor of 200 ms and an initial value of 1 second before any RTT has been measured. Inside a data center where the RTT is 100 to 500 microseconds, an RTO costs several hundred to a few thousand round trips. Linux's tail loss probe, a speculative retransmission after about two RTTs, rescues some case-B losses, but the floor still governs when the probe is lost too.
+
+Connection setup is worse. A lost SYN (the first handshake packet) has no RTT estimate, so it is retransmitted after 1 second and then with exponential backoff; with Linux's default `tcp_syn_retries` of 6 the attempt fails after about 127 seconds. A client that opens a connection per request and meets 1% SYN loss adds at least one second to 1% of its requests.
+
+### Worked Example: 0.1% Loss in a Fan-Out Service
+
+Assume a service inside one data center with a median RTT of 0.2 ms, whose responses fit in about ten packets, and assume a packet loss rate of 0.1% on one degraded path, a level that is usually invisible in dashboards that report averages. All numbers are illustrative.
+
+A ten-packet exchange loses at least one packet with probability `1 - 0.999^10`, about 1.0%. Suppose half of those losses hit the last segment of a burst and cost an RTO of at least 200 ms. Then about 0.5% of calls take 200 ms or more instead of about 1 ms: the median does not move, the mean rises by about 1 ms, and the p99.5 jumps by two orders of magnitude.
+
+Now put this service behind a request that fans out to 50 such calls in parallel and waits for all of them. The probability that at least one of the 50 hits an RTO is `1 - 0.995^50`, about 22%. More than one user request in five now costs at least 200 ms, entirely because of a loss rate of one packet in a thousand. This is the network-level mechanism behind the tail amplification described in [The Scaling Dilemma](/distributed-systems/en/foundations/monoliths-to-distributed/scaling-dilemma/), and the reason a 0.1% loss rate is an incident in a data center rather than background noise.
+
+### Loss Caps Throughput, Not Only Latency
+
+Loss also limits how fast one connection can go. Loss-based congestion control, the family that includes Reno and, in modified form, CUBIC (the Linux default), halves or reduces its sending window on every loss and grows it slowly afterward. Mathis, Semke, Mahdavi, and Ott derived the resulting ceiling for Reno-style control: throughput is at most about `(MSS / RTT) * (1.22 / sqrt(p))`, where MSS is the maximum segment size and `p` the loss probability. For a cross-region flow with an MSS of 1,460 bytes and an RTT of 70 ms, `MSS / RTT` is about 167 kbit/s, so a loss rate of 0.01% (`sqrt(p) = 0.01`) caps the flow at about 20 Mbit/s, regardless of whether the link is 10 or 100 Gbit/s.
+
 ```mermaid
-flowchart TD
-    subgraph Spine["Spine Layer (100 Gbps links)"]
-        S1[Spine 1]
-        S2[Spine 2]
-        S3[Spine 3]
-        S4[Spine 4]
-    end
-    subgraph Leaf1["Rack A (ToR Switch)"]
-        L1[ToR\n4x 25GbE uplinks\n= 100 Gbps up]
-        H1[Server 1\n25 GbE]
-        H2[Server 2\n25 GbE]
-        H3["...46 servers\n@25 GbE each\n= 1.15 Tbps down"]
-    end
-    subgraph Leaf2["Rack B (ToR Switch)"]
-        L2[ToR\n4x 25GbE uplinks]
-        H4[Server 3]
-        H5[Server 4]
-    end
- 
-    S1 & S2 & S3 & S4 <-->|25 Gbps each| L1
-    S1 & S2 & S3 & S4 <-->|25 Gbps each| L2
-    L1 --- H1 & H2 & H3
-    L2 --- H4 & H5
- 
-    note["Oversubscription: 1.15 Tbps server bandwidth\nvs 100 Gbps uplink = 11.5:1\nTypical: 4:1 to 8:1 in production"]
+xychart-beta
+    title "Reno-model ceiling for one flow, RTT 70 ms, MSS 1460 B"
+    x-axis "Packet loss rate (percent)" ["0.0001", "0.001", "0.01", "0.1", "1"]
+    y-axis "Max throughput (Mbit/s)" 0 --> 220
+    line [203.6, 64.4, 20.4, 6.4, 2.0]
 ```
-*Leaf-spine topology with oversubscription: server-to-ToR bandwidth exceeds ToR-to-spine uplink capacity, creating a contention point under heavy intra-rack-to-external traffic.*
- 
-### Cloud Network Topology and Its Implications
- 
-Cloud providers abstract physical network topology behind virtual network primitives (VPC, subnet, security group), but the underlying physics remain. Several constraints are operationally relevant.
- 
-**Same-instance bandwidth is finite.** Cloud instances have per-instance network bandwidth limits that scale with instance size. A `c6i.large` (2 vCPU) provides up to 12.5 Gbps network bandwidth; a `c6i.32xlarge` (128 vCPU) provides up to 50 Gbps. The "up to" qualifier is significant: baseline bandwidth is a fraction of the peak, and network-intensive workloads on small instances encounter the limit more quickly than CPU metrics suggest.
- 
-**Same-AZ traffic is free and fast.** Cross-AZ traffic costs money ($0.01-$0.02/GB between AZs on major providers) and adds 1-3 ms latency. This pricing structure creates a subtle architectural bias: systems designed primarily to minimize cost tend to co-locate everything in one AZ, creating a hidden availability risk where a single AZ outage takes down the entire system.
- 
-**Placement groups reduce inter-node latency.** AWS Cluster Placement Groups, GCP Compact Placement Policies, and similar constructs guarantee that instances are placed on the same physical rack or within the same low-latency network cluster. For latency-sensitive distributed systems (Kafka clusters, distributed databases, consensus-heavy workloads), placement groups reduce inter-node RTT from ~500 µs to ~100 µs — a 5x latency improvement that meaningfully affects quorum write performance.
- 
-:::tip
-For any distributed system that performs synchronous replication or consensus — Kafka, Zookeeper, etcd, Cassandra, Redis Cluster — use placement groups or equivalent co-location constructs to minimize inter-node latency. A Raft cluster where followers are 500 µs from the leader has a minimum write latency of 1 ms (one round trip). The same cluster with 100 µs inter-node latency achieves 200 µs write latency — a 5x improvement in the critical path.
-:::
- 
-## Network Partitions: Characteristics and Detection
- 
-A **network partition** is a condition where some nodes in a distributed system can communicate with each other but not with other nodes. This is distinct from a total network failure — in a partition, nodes are alive and processing, just unable to reach each other across the partition boundary.
- 
-Partitions are particularly insidious because:
- 
-1. **Nodes inside each partition continue operating.** They do not know they are partitioned — they only know that they cannot reach some other nodes. A partition is indistinguishable from a crashed peer until timing and metadata allow differentiation.
-2. **Partitions are asymmetric.** Node A may be able to send messages to Node B but not receive them (one-way partition). This creates states where A believes B is alive (it gets no connection error when sending) but B cannot inform A of anything.
-3. **Partitions heal.** Unlike crashes, partitions resolve when connectivity is restored. When a partition heals, both sides may have diverged in state — each having accepted writes that the other has not seen. This divergence must be reconciled, and the reconciliation strategy (last-write-wins, vector clock merge, user-resolution) is the defining property of the system's consistency model.
+*Throughput ceiling from the Mathis formula. Each tenfold increase in loss divides the ceiling by about 3.2.*
+
+The curve explains why a long-haul replication stream that runs at hundreds of Mbit/s on a clean path drops to single digits during low-level loss that no availability alarm catches. The model is an approximation: CUBIC recovers faster than Reno on high-bandwidth, high-RTT paths, and BBR (Bottleneck Bandwidth and Round-trip propagation time), a model-based algorithm developed at Google, does not treat isolated loss as a congestion signal and degrades far less. The qualitative lesson survives: on loss-based control, throughput across distance is governed by loss rate and RTT, not by link speed.
+
+## Bandwidth: Which Limit Actually Binds a Flow
+
+A single transfer passes through at least five independent limits, and the one that binds is rarely the network interface card's (NIC) rated speed.
+
+The first is the window. TCP can have at most one window of unacknowledged data in flight, so a flow's throughput cannot exceed `window / RTT`. To fill a path, the window must be at least the bandwidth-delay product (BDP), `rate * RTT`. A 10 Gbit/s path with a 70 ms RTT has a BDP of 87.5 MB. Linux autotunes the receive buffer up to the maximum in `net.ipv4.tcp_rmem`, which for years defaulted to 6 MB; a 6 MB window over 70 ms allows at most about 720 Mbit/s, under a tenth of the link, before any loss. A kernel change in 2025 raised the default maximum to 32 MB, which allows about 3.8 Gbit/s on the same path, so the ceiling depends on the kernel version a fleet actually runs. Inside a data center the BDP is about 250 KB (10 Gbit/s times 0.2 ms) and the window rarely binds; across regions it binds first.
+
+The second is the per-flow path. Data center fabrics spread traffic over many equal-cost links with ECMP (equal-cost multi-path) routing: each switch hashes a packet's 5-tuple (source and destination address and port, and protocol) to choose one of several next hops. Hashing keeps each flow on one path, which avoids reordering, so one flow can never exceed one member link, and two large flows that collide share a link while its neighbor sits idle. Cloud providers add their own per-flow caps on top, as described in [Cost-Performance Curves and Hardware Limits](/distributed-systems/en/foundations/monoliths-to-distributed/cost-performance-curves/).
+
+The third is oversubscription. In a leaf-spine fabric, servers connect to a top-of-rack (leaf) switch and leaves connect to spines. A leaf with more server-facing than spine-facing capacity is oversubscribed: traffic within the rack runs at full speed, traffic leaving it shares the uplinks.
+
 ```mermaid
-flowchart LR
-    subgraph Part1["Partition 1 (network segment A)"]
-        N1[Node 1\nLeader]
-        N2[Node 2\nFollower]
-        N1 <-->|healthy| N2
+flowchart TB
+    subgraph SPINE["Spine layer"]
+        S1["Spine 1"]
+        S2["Spine 2"]
+        S3["Spine 3"]
+        S4["Spine 4"]
     end
-    subgraph Part2["Partition 2 (network segment B)"]
-        N3[Node 3\nFollower]
-        N4[Node 4\nFollower]
-        N3 <-->|healthy| N4
+    subgraph RACK["Rack A: 48 servers x 25 Gbit/s = 1200 Gbit/s"]
+        L1["Leaf A"]
+        H1["Server 1"] --> L1
+        H2["Server 48"] --> L1
     end
- 
-    N1 & N2 x--x|partition| N3 & N4
- 
-    N3 -->|election timeout fires| N3E[Node 3 becomes\nnew Leader]
-    N1 -->|still accepting writes| WA[Writes to old leader]
-    N3E -->|also accepting writes| WB[Writes to new leader]
- 
-    WA & WB --> Diverge([Diverged state\nrequires reconciliation\nwhen partition heals])
+    L1 -->|"4 x 100 Gbit/s uplinks = 400 Gbit/s"| S1
+    L1 --> S2
+    L1 --> S3
+    L1 --> S4
+    S1 & S2 & S3 & S4 --> L2["Leaf B"]
+    L2 --> RB["Rack B servers"]
+    L1 -.->|"ECMP hash picks one uplink per flow"| S2
 ```
-*Split-brain during a network partition: both partitions elect leaders and accept writes, creating divergent state that must be reconciled.*
- 
-**Partition detection time** is the most operationally significant variable. A system detects a partition when heartbeats from a peer stop arriving for longer than the configured failure detection timeout. Shorter timeouts detect partitions faster but increase the false-positive rate — transient network hiccups trigger leader elections and reconfiguration events unnecessarily. Longer timeouts reduce false positives but increase the window during which a partitioned system operates in a potentially inconsistent state.
- 
-The Phi Accrual Failure Detector (used by Akka and Cassandra) addresses this trade-off by computing a failure probability rather than a binary timeout: φ increases continuously as the interval since the last heartbeat grows, allowing the application to choose its own acceptable false-positive threshold rather than committing to a fixed timeout.
- 
-## Topology Changes: Operational Sources and Their Blast Radius
- 
-Network topology changes during normal operations are not exceptional events — they are routine in any dynamically managed infrastructure.
- 
-### Kubernetes Pod Lifecycle and IP Churn
- 
-Every Kubernetes pod receives a unique IP address that is allocated at pod creation and released at pod deletion. Any operation that replaces a pod — rolling deployment, autoscaling, health check failure and restart, node drain for maintenance, eviction due to resource pressure — changes the IP address associated with that service instance.
- 
-The rate of IP churn in a production Kubernetes cluster is higher than most engineers expect. A cluster running 500 services with rolling deployments every 2 hours per service generates approximately 250 pod IP changes per hour — over 6,000 per day. Each change requires:
- 
-1. The Endpoints object for the service to be updated by the Endpoint Controller
-2. `kube-proxy` on all relevant nodes to update iptables or IPVS rules
-3. The Envoy sidecar in each pod (if using Istio/Linkerd) to receive updated cluster configuration via xDS
-4. DNS records for headless services to be updated in CoreDNS
-The propagation delay from pod creation to full routing convergence is typically 1-5 seconds in a healthy cluster and can extend to 30-60 seconds under load or during control plane stress. During this window, some requests will be routed to the old (terminating) pod and others to the new pod, producing a mixture of success and failure responses that is visible as elevated error rates in metrics.
- 
+*An illustrative leaf with 3:1 oversubscription. Each flow leaving the rack is pinned to one uplink by the ECMP hash.*
+
+With 1,200 Gbit/s of server capacity behind 400 Gbit/s of uplinks, the rack can send only a third of its capacity off-rack at once. That is harmless while traffic is local or bursty; a shuffle, backfill, or replica rebuild that makes every server send off-rack finds the uplinks full. Placement therefore changes effective bandwidth: replicas in one rack resynchronize at full speed and share fate, replicas in different racks are safer and slower.
+
+The fourth is the receiver's port. Many-to-one traffic, where a client sends a request to dozens of servers and they all reply at the same instant, concentrates the replies on one switch port. This is TCP incast, analyzed by Vasudevan and colleagues in 2009: the synchronized burst overflows a shallow switch buffer, several flows lose their last segments together, and each waits out a 200 ms RTO while the link sits idle, so goodput collapses although average utilization is low. Deep buffers fail the opposite way: an overloaded link drops nothing and builds a standing queue (bufferbloat), which is why saturation first appears as latency. The fifth limit is any middlebox on the path: load balancers, NAT (network address translation) gateways, and firewalls cap packets per second and tracked connections.
+
+| Limit | What sets it | Symptom when it binds | Detection | Remedy |
+|---|---|---|---|---|
+| Window / BDP | Socket buffer maximum, RTT | Single long-distance flow far below link speed, no loss | `ss -ti` shows window near buffer max, cwnd stable | Raise buffer maxima, parallel streams |
+| ECMP member link | Hash of 5-tuple | Some flows slow, others fast on the same hosts | Uneven uplink utilization, per-flow throughput spread | More flows, flowlet or packet spraying where supported |
+| Provider per-flow cap | Cloud allowance | Flow plateaus at a fixed rate | Provider counters, flat throughput line | Multiple flows, placement groups |
+| Oversubscription | Leaf uplink ratio | Throughput falls when many hosts send off-rack | Uplink utilization and discards on leaf switches | Rack-aware placement, scheduling bulk jobs |
+| Incast | Fan-in, shallow buffers | Goodput collapse with low average utilization | Retransmission timeouts clustered on one receiver | Limit fan-in, ECN with DCTCP, jittered replies |
+| Middlebox capacity | Device PPS and state limits | New connections fail, old ones work | Conntrack counts, device drop counters | Fewer connections, stateless paths |
+
+:::tip[A retry on a new connection takes a new path]
+Because ECMP hashes the 5-tuple, a new connection gets a new source port and usually a new path through the fabric. A request that times out on a connection hashed onto a degraded link often succeeds immediately when retried on a fresh connection, and fails again when retried on the same one. Clients that reuse a pooled connection for retries can keep hitting the one bad link; clients that open a new connection for the retry route around it by accident.
+:::
+
+## Topology Changes: How a Path Change Reaches the Application
+
+Topology changes constantly, through upgrades, drains, scale-out, failures, and route withdrawals. Routing protocols handle it: a router detects the failure, through loss of carrier, Bidirectional Forwarding Detection (BFD) probes, or expiring protocol hold timers, withdraws the affected routes, and every router recomputes its next hops. Until reconvergence completes, packets toward the failed element are dropped, and while routers disagree briefly, packets can loop. Carrier loss is detected in milliseconds; a silent failure that only protocol timers can detect may take seconds or, with default BGP (Border Gateway Protocol) hold timers, tens of seconds, which is why BFD with sub-second intervals is common in data center fabrics.
+
+Through stateless routers, a reroute is mostly harmless: packets in flight may be lost or reordered, TCP retransmits them, and the connection continues on the new path at the cost of one RTO at worst. An ECMP group that gains or loses a member rehashes flows, and unless resilient hashing is used, a modulo hash moves many flows that were never on the changed link, harmless for routing but not for anything that keeps state.
+
+Topology changes become visible to applications through per-connection state on the path. A NAT gateway, a stateful firewall, and a layer-4 load balancer all keep a table mapping each connection to a translation, a verdict, or a chosen backend. If a reroute or rehash sends an established connection's packets through a different instance that does not hold its entry, the new instance has no record of it and either drops the packets or answers with a reset.
+
 ```mermaid
 sequenceDiagram
-    participant K8s as Kubernetes API
-    participant EC as Endpoint Controller
-    participant KP as kube-proxy (all nodes)
-    participant DNS as CoreDNS
-    participant LB as Load Balancer / Envoy
- 
-    K8s->>EC: Pod deletion event
-    K8s->>EC: New pod created event
-    EC->>K8s: Update Endpoints object
-    K8s->>KP: Watch notification (Endpoints changed)
-    K8s->>DNS: Watch notification
-    K8s->>LB: xDS update (if service mesh)
- 
-    Note over KP: iptables/IPVS rule update\n~1-2s per node
-    Note over DNS: TTL expiry + new record\n~1-5s propagation
-    Note over LB: xDS convergence\n~1-3s
- 
-    Note over K8s,LB: Total convergence: 1-10s\nDuring which: mixed old/new routing
+    autonumber
+    participant C as Client
+    participant R as ECMP router
+    participant LB1 as L4 LB instance 1
+    participant LB2 as L4 LB instance 2
+    participant B as Backend
+    C->>R: Packets of established connection
+    R->>LB1: Hash selects instance 1
+    LB1->>B: Forward per connection table
+    Note over R,LB2: LB instance 2 added, ECMP group rehashes
+    C->>R: Next packet of same connection
+    R->>LB2: Hash now selects instance 2
+    alt Instance 2 has no state and no consistent backend choice
+        LB2-->>C: TCP reset, connection lost
+    else Consistent hashing picks the same backend
+        LB2->>B: Forwarded, connection survives
+    end
 ```
-*Routing convergence during a Kubernetes pod replacement: multiple independent propagation paths must all converge before routing is fully correct.*
- 
-### BGP Reconvergence in Cloud Environments
- 
-Cloud providers use BGP (Border Gateway Protocol) internally for routing between availability zones and regions, and for routing between provider infrastructure and customer resources. BGP reconvergence after a topology change — link failure, route withdrawal, or router restart — takes time, and during reconvergence traffic may be blackholed, misrouted, or experience elevated loss.
- 
-The 2017 Google global outage and the 2021 Facebook/Instagram/WhatsApp outage were both caused by BGP route withdrawals that propagated globally, making entire portions of the internet unreachable. These events are extreme examples of the same mechanism that causes intermittent cross-AZ or cross-region connectivity issues on smaller scales in production systems daily.
- 
-For distributed systems, the operational implication is that **cross-AZ and cross-region network links should be treated with the same skepticism as any other unreliable dependency**. A circuit breaker that monitors failure rates on cross-AZ traffic and opens when error rates exceed a threshold is not paranoid engineering — it is the correct response to the actual reliability characteristics of these links.
- 
-### Link Aggregation and ECMP Failover
- 
-High-availability network configurations use **ECMP (Equal Cost Multi-Path)** routing to spread traffic across multiple redundant links. When one link in an ECMP group fails, the hash function used to distribute flows must be recomputed, and existing TCP connections may be rehashed to different paths. This does not break TCP connections (the new path reaches the same destination), but it does cause a brief interruption while the new path is established and any per-path state (QoS markings, firewall state, NAT translations) is re-created.
- 
-In practice, ECMP failover appears in application metrics as a brief (~100ms-1s) spike in latency and error rate affecting a fraction of connections — exactly the kind of transient failure that a properly configured retry strategy with exponential backoff handles correctly, but that a fixed-timeout-without-retry strategy converts into a user-visible error.
- 
-## Bandwidth Limitations in Practice: Four Bottleneck Archetypes
- 
-Bandwidth limitations manifest differently depending on where in the network path the bottleneck sits.
- 
-**Intra-host bottleneck (CPU-bound serialization).** The bottleneck is not the NIC but the application's ability to produce or consume data fast enough to saturate the NIC. JSON serialization at ~300 MB/s cannot saturate a 10 GbE NIC; Protobuf at ~2 GB/s can. For CPU-bound serialization workloads, switching to a more efficient format is more effective than increasing network bandwidth.
- 
-**Intra-rack bottleneck (ToR oversubscription).** All-to-all communication patterns within a Kubernetes cluster — typical during MapReduce shuffle, distributed sort, or Kafka consumer group rebalancing — saturate the ToR uplink when aggregate inter-rack traffic exceeds uplink capacity. The fix is rack-aware scheduling: place communicating processes on the same rack (or same AZ) to keep traffic local wherever possible.
- 
-**Inter-AZ bottleneck (metered, latency-penalized).** Designs that place frequently-communicating services in different AZs for availability reasons pay both latency (1-3ms) and bandwidth cost ($0.01-0.02/GB). The architectural response is to co-locate services that communicate frequently while distributing services that handle user-facing requests across AZs for availability.
- 
-**Egress bottleneck (internet-bound traffic).** Outbound traffic to the internet or to external APIs passes through NAT gateways, internet gateways, or direct-connect endpoints, each with bandwidth limits. A service that regularly transfers large objects to external parties or serves large downloads to end users must account for the upstream bandwidth limit of these gateways — limits that are often much lower than internal network bandwidth.
- 
+*A scale-out of a stateful layer-4 load balancer. Whether existing connections survive depends on whether the new instance can reconstruct the old instance's choice.*
+
+Between steps 3 and 4 the topology changes for a reason unrelated to this connection, and in step 5 its packets reach an instance that never saw the handshake. The `alt` branch is the design decision: load balancers built for this, such as Google's Maglev, pick the backend with a consistent hash of the 5-tuple so that any instance makes the same choice for most connections, and share or replicate connection state for the rest. The general technique is covered in [Consistent Hashing](/distributed-systems/en/data-management/data-partitioning/consistent-hashing/), and the layer distinction in [L4 vs. L7 Load Balancing](/distributed-systems/en/communication/load-balancing/l4-vs-l7/). Applications see such events as bursts of `connection reset by peer` that coincide with infrastructure changes and not with their own deploys.
+
+A second channel is an endpoint changing address. TCP identifies a connection by its 4-tuple, so any address change ends it; QUIC uses connection IDs and can migrate a connection to a new client address, covered in [HTTP/2 and HTTP/3](/distributed-systems/en/communication/synchronous-protocols/http2-http3-quic/). Logical topology, which instances stand behind a name, changes through discovery and DNS, the subject of [DNS-Based Discovery](/distributed-systems/en/microservice-patterns/service-discovery/dns-based-discovery/).
+
+### Partitions Are Partial, Asymmetric, and Gray
+
+Textbook partitions split nodes into two groups that cannot reach each other. Real partitions are usually messier.
+
 ```mermaid
-flowchart LR
-    App[Application\nProto serialization\n~2 GB/s CPU limit] -->|10 GbE NIC| ToR[ToR Switch\n4:1 oversubscription\nUplink: 100 Gbps]
-    ToR -->|spine fabric| AZ2[Cross-AZ\n$0.01/GB\n+2ms latency]
-    AZ2 -->|NAT gateway| Egress[Internet Egress\n5-100 Gbps limit\n$0.09/GB]
- 
-    App2[Application\nJSON serialization\n~300 MB/s CPU limit] -->|CPU bottleneck| Slow([NIC underutilized\nCPU is the limit])
- 
-    style Slow fill:#c0392b,color:#fff
+flowchart TB
+    subgraph SIMPLEX["Simplex partition"]
+        A3["A"] -->|"A to B works"| B3["B"]
+        B3 -.-x|"B to A dropped"| A3
+    end
+    subgraph PARTIAL["Partial partition"]
+        A2["A"] <--> B2["B"]
+        A2 <--> C2["C"]
+        B2 -.-x C2
+    end
+    subgraph FULL["Complete partition"]
+        A1["A"] <--> B1["B"]
+        C1["C"]
+    end
 ```
-*Bandwidth bottleneck progression: CPU-bound serialization limits NIC utilization; oversubscribed ToR limits cross-rack throughput; egress gateway limits external transfer.*
- 
-## Designing for Network Reality
- 
-The operational response to network unreliability, limited bandwidth, and topology change is not to build systems that assume reliable networks — it is to build systems whose behavior is correct and bounded under all realistic failure conditions.
- 
-**Timeouts at every layer.** Every network call at the application layer must have an explicit timeout. Every connection pool must have an idle connection timeout shorter than the shortest middlebox timeout in the path (typically 30-60 seconds for cloud load balancers). Every health check must have a distinct failure threshold and recovery threshold.
- 
-**Retry with bounded amplification.** Retries are necessary for transient failures, but unbounded retries convert transient failures into sustained overload. Retry logic must include: exponential backoff with full jitter, a maximum retry count, a deadline that prevents retrying beyond the caller's timeout, and idempotency keys on mutating operations so that duplicated retries are safe.
- 
-```go
-func retryWithBackoff(ctx context.Context, maxAttempts int, fn func() error) error {
-    var lastErr error
-    for attempt := 0; attempt < maxAttempts; attempt++ {
-        if err := ctx.Err(); err != nil {
-            return fmt.Errorf("context cancelled before attempt %d: %w", attempt, err)
-        }
- 
-        lastErr = fn()
-        if lastErr == nil {
-            return nil
-        }
- 
-        if !isRetryable(lastErr) {
-            return lastErr // Fast fail non-transient errors
-        }
- 
-        if attempt == maxAttempts-1 {
-            break
-        }
- 
-        // Full jitter: sleep = random(0, min(cap, base * 2^attempt))
-        cap := 30 * time.Second
-        base := 100 * time.Millisecond
-        maxWait := min(cap, base * time.Duration(1<<attempt))
-        jitter := time.Duration(rand.Int63n(int64(maxWait)))
- 
-        select {
-        case <-time.After(jitter):
-        case <-ctx.Done():
-            return fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
-        }
-    }
-    return fmt.Errorf("all %d attempts failed, last error: %w", maxAttempts, lastErr)
-}
+*Three shapes of partition. In the partial case, A can reach everyone and B and C cannot reach each other; in the simplex case, traffic flows in only one direction.*
+
+In a partial partition, some pairs of nodes can communicate and others cannot, so there is no consistent answer to "who is in my group". A node that can reach everyone (A in the diagram) sees a healthy cluster, while B and C each believe the other is dead. If B is the leader, C may start an election, win it with A's vote, and B, which still reaches A, may contest it; leadership can flap indefinitely, or two nodes can each act as leader toward different clients. In a simplex partition, messages flow in one direction only: a node that keeps receiving heartbeats but whose replies are dropped is considered dead by its peers while it believes it is healthy. A one-way ACL (access control list) or a failing transceiver can produce one.
+
+These shapes are not exotic. Alquraan and colleagues studied 136 failures attributed to network partitions across 25 widely used distributed systems and found that the majority had catastrophic effects, including data loss, reappearance of deleted data, broken locks, and crashes. A follow-up study by Alfatafta and colleagues examined partial partitions specifically across 12 popular systems, found that they also lead to catastrophic failures, and showed that partially partitioning a single node can be enough to trigger them.
+
+The broadest category is gray failure, named by Huang and colleagues: a fault whose manifestations are subtle and perceived differently by different observers. A switch port that drops 2% of packets or a NIC that corrupts only large frames does not trip binary health checks, because a few small probes get through while application traffic suffers. The defining property is differential observability: the monitor and the user see different systems, so detection has to come from the application's own per-destination errors, retransmissions, and latency, compared across peers to find the common element.
+
+:::danger[Partial partitions defeat naive leader election]
+A protocol whose correctness argument assumes that "unreachable from me" means "unreachable from everyone" can elect two leaders or lose acknowledged writes when the network is partially partitioned. Use protocols whose safety does not depend on failure detection, such as quorum-based consensus with term numbers, and fence the old leader's writes with monotonically increasing tokens, as described in [Split-Brain and Fencing](/distributed-systems/en/coordination/consensus-algorithms/split-brain-fencing/). What survives a partition at the level of consistency guarantees is the subject of the [CAP Theorem](/distributed-systems/en/data-management/consistency-models/cap-theorem/).
+:::
+
+## Coping Strategies and What They Cost
+
+Every remedy for loss, capacity limits, or path changes trades one cost for another, and the choice depends on where the system spends its latency budget.
+
+| Strategy | What it addresses | Cost | When to prefer |
+|---|---|---|---|
+| Long-lived pooled connections | SYN loss, handshake cost | Pinned to one path and backend, stale after topology change | High request rates between stable peers |
+| Short connections or periodic reconnect | Stale paths, uneven backend load | Handshake latency, SYN-loss exposure, more middlebox state | Fleets that scale often; with a maximum connection age |
+| Lower RTO floor (per route) | Tail latency from timeouts | Spurious retransmissions if RTT spikes | Controlled data center networks with stable sub-ms RTT |
+| ECN with DCTCP | Incast, queueing delay | Needs switch and host support end to end | Homogeneous data center fabrics you operate |
+| BBR congestion control | Throughput under random loss | Fairness against loss-based flows, version-dependent behavior | Long-haul bulk transfer, lossy WAN paths |
+| Hedged requests | Tail from any single slow path | Extra load on the callee | Idempotent reads with a tight latency target |
+| Rack- and zone-aware placement | Oversubscription, shared fate | Scheduling constraints, cross-zone cost | Replication and bulk-data paths |
+| QUIC with connection migration | Client address changes, head-of-line blocking | User-space CPU cost, UDP-hostile middleboxes | Mobile and internet-facing clients |
+
+Two observations govern most choices. First, the cheapest way to avoid loss-driven tails is to avoid the conditions that produce RTOs, above all synchronized fan-in, and to keep application deadlines short enough to retry elsewhere before the transport recovers. Second, any remedy that keeps more state on the path (connection pinning, sticky load balancing, stateful firewalls) makes the system more sensitive to topology change, and any remedy that removes state makes connections more expensive to set up. Application-level deadlines and retry policy are covered in [Timeouts](/distributed-systems/en/resilience/protection-patterns/timeouts/) and [Retry with Exponential Backoff and Jitter](/distributed-systems/en/resilience/protection-patterns/retry-exponential-backoff/).
+
+### Inspecting What the Kernel Sees
+
+The kernel's TCP counters are the most direct evidence of network unreliability, because they record what the transport hid from the application.
+
+```shell
+# Per-connection view: rto, rtt, cwnd, retrans counters for each socket
+ss -tin dst 10.0.2.15
+# Host-wide counters; a rising TCPTimeouts rate means tail latency from RTOs
+nstat -az TcpRetransSegs TcpExtTCPTimeouts TcpExtTCPLossProbes TcpExtTCPSynRetrans
+# Receive buffer limits that cap the window (min default max, bytes)
+sysctl net.ipv4.tcp_rmem
+# Lower the RTO floor for one data center route only (iproute2), not globally
+ip route change 10.0.0.0/16 via 10.0.0.1 rto_min 10ms
+# Connection-tracking table usage versus its maximum on hosts that NAT or filter
+sysctl net.netfilter.nf_conntrack_count net.netfilter.nf_conntrack_max
 ```
- 
-**Traffic shaping and priority queues.** When bandwidth is limited and multiple traffic types share a link, traffic shaping (token bucket rate limiters at the application level, QoS markings at the network level) prevents bulk transfers from starving latency-sensitive traffic. Kafka replication traffic, backup jobs, and log shipping should be explicitly rate-limited so that user-facing API traffic retains its bandwidth allocation under load.
- 
-**Topology-aware scheduling.** For workloads with significant inter-node communication, scheduling decisions should account for network topology. Kubernetes `topologySpreadConstraints` distribute pods across failure domains. Kafka partition assignment should place replicas in different racks or AZs. Cassandra's `NetworkTopologyStrategy` replication strategy distributes replicas across defined data centers explicitly.
- 
-```yaml
-# Kubernetes: spread pods across availability zones
-# Ensures a single AZ failure loses at most 1/N of the replicas
-apiVersion: apps/v1
-kind: Deployment
-spec:
-  template:
-    spec:
-      topologySpreadConstraints:
-        - maxSkew: 1                          # At most 1 pod more in one zone than another
-          topologyKey: topology.kubernetes.io/zone
-          whenUnsatisfiable: DoNotSchedule    # Prefer availability over scheduling speed
-          labelSelector:
-            matchLabels:
-              app: order-service
+
+Read `TcpExtTCPTimeouts` as a rate per destination where possible: a fleet-wide rise points at the fabric, a rise toward one rack at its leaf, toward one host at its NIC or cable.
+
+:::caution[Do not tune transport timers globally]
+Lowering `rto_min`, `tcp_retries2`, or `tcp_syn_retries` for the whole host also affects connections to the internet, to other regions, and to services with occasional long pauses, where a short timer causes spurious retransmissions or premature connection failure. Apply aggressive values per route to destinations whose RTT you control, and bound application latency with request deadlines rather than kernel timers.
+:::
+
+## Failure Modes in Production
+
+### Gray Link in an ECMP Group
+
+Trigger: one member link or line card in an ECMP group drops or corrupts a small fraction of packets. Symptoms: a fixed subset of connections, those hashed onto the bad link, are slow or time out, while others between the same hosts are healthy; retries on new connections succeed; health checks pass. Detection: per-interface CRC and discard counters on switches, retransmission timeouts grouped by source and destination pair, and bimodal latency distributions for one service. Mitigation: drain the link from the ECMP group, and in clients, retry timed-out requests on a new connection. Recovery: replace the optic or cable and verify error counters before restoring it.
+
+### Incast Collapse
+
+Trigger: a scatter-gather request, a cache-warming job, or a shuffle makes many servers reply to one receiver within the same microseconds. Symptoms: the aggregating service's throughput falls sharply while its link utilization stays low, and latency clusters at multiples of 200 ms. Detection: `TcpExtTCPTimeouts` rising on the senders toward one receiver, discard counters on the receiver's leaf port. Mitigation: cap fan-in per request, add small random delays to replies, enable ECN with DCTCP where the fabric supports it, or have the receiver pull results in batches.
+
+### Connection-Tracking Exhaustion
+
+Trigger: a host or gateway that tracks connections (a NAT, a stateful firewall, iptables-based service routing on Kubernetes nodes) fills its table, often after a client starts opening a new connection per request or after a retry storm. Symptoms: new connections fail or hang while established connections keep working, and the kernel logs `nf_conntrack: table full, dropping packet`. Detection: `nf_conntrack_count` approaching `nf_conntrack_max`, provider counters for tracked-connection limits. Mitigation: connection reuse, shorter timeouts for closed connections in the tracking table, larger tables sized against memory; node-level behavior is covered in [Kubernetes Networking](/distributed-systems/en/kubernetes/runtime-and-operations/kubernetes-networking/).
+
+### Capacity Loss Amplified by Retries
+
+The most damaging network failures combine a capacity reduction with clients that respond by sending more. On December 7, 2021, an automated activity to scale a service in AWS's main network in US-EAST-1 triggered unexpected behavior in many clients on AWS's internal network, producing a surge of connection activity that overwhelmed the devices linking the two networks. Latency and errors caused more connection attempts and retries, and AWS reported that a latent issue prevented these clients from backing off adequately. The congestion also disrupted the real-time monitoring the operations team needed to find the cause.
+
+```mermaid
+timeline
+    title AWS US-EAST-1, December 7, 2021 (from the public AWS summary, PST)
+    0730 : Automated scaling triggers connection surge
+         : Devices between internal and main networks congest
+    0733 : EC2 API errors and latency begin
+    Morning : Retries sustain congestion, clients fail to back off
+            : Internal monitoring impaired, operators work from logs
+    0928 : Internal DNS traffic moved off congested path
+    1334 : Congestion significantly improved
+    1422 : All network devices fully recovered
 ```
- 
-See [The 8 Fallacies of Distributed Computing](/distributed-systems/en/foundations/monoliths-to-distributed/eight-fallacies/) for the behavioral implications of the assumptions this page refutes at the implementation level.
-See [Failure Models](/distributed-systems/en/foundations/system-models/failure-models/) for how network failures translate into the formal failure model taxonomy used in distributed algorithms.
-See [Failure Propagation: Cascading Failure Analysis](/distributed-systems/en/foundations/system-models/cascading-failure/) for how the network degradation modes described here propagate into application-level outages.
+*Event order from AWS's public summary. Dependent services recovered later, some after 16:00 PST.*
+
+The timeline shows the shape that matters: the trigger was a capacity event in a component few engineers would draw on an architecture diagram, and what kept it going for hours was client behavior, connection attempts and retries that rose as conditions worsened. In Google Cloud's June 2, 2019 incident, maintenance automation descheduled network control plane jobs in several locations at once; after minutes in a fail-static state, routes were withdrawn, capacity fell, and some regions saw heavy packet loss for hours. In both cases the network did not fail outright; it lost capacity, and the response to reduced capacity decided the outcome. The feedback dynamics are covered in [Retry Storms and Metastable Failures](/distributed-systems/en/resilience/flow-control/retry-storms-metastable-failures/) and [Cascading Failure Analysis](/distributed-systems/en/foundations/system-models/cascading-failure/).
+
+| Failure | Symptom from outside | Detection signal | Mitigation |
+|---|---|---|---|
+| Gray link | Subset of connections slow, retries succeed | Interface CRC errors, RTOs per host pair | Drain link, retry on new connection |
+| Incast | Low utilization, latency in 200 ms steps | RTOs toward one receiver, leaf port discards | Cap fan-in, jitter, DCTCP |
+| Conntrack full | New connections fail, old ones fine | `nf_conntrack: table full` log, count near max | Reuse connections, size tables |
+| Stateful path change | Reset bursts after infrastructure changes | Resets correlated with LB or route events | Consistent-hash LBs, client reconnect logic |
+| Partial partition | Leader flapping, conflicting views | Pairwise reachability matrix | Quorum consensus with fencing |
+| Capacity loss with retries | Errors grow as load grows | Attempts per request, connection rate | Retry budgets, backoff, load shedding |
+
+## Designing Against the Network You Have
+
+Design for loss whenever a request makes more than a handful of remote calls or has a latency objective within an order of magnitude of 200 ms, because there RTOs show up in user-facing percentiles: measure retransmission timeouts as a service metric, avoid synchronized fan-in, and retry on a new connection. Design for bandwidth limits whenever one flow must move data across racks, zones, or regions above a few hundred Mbit/s: compute the BDP, check buffer maxima on the kernels you run, and plan for parallel flows. Design for topology change whenever a connection outlives a deploy or an infrastructure change, which in practice is any pooled connection: assume resets, cap connection age, and keep stateful middleboxes either consistent across instances or out of the path.
+
+Do not lower kernel timers globally to fix tail latency; it moves failures onto paths you do not control. Do not treat a passing health check as evidence that the network is fine for application traffic; gray failures are defined by the gap between the two, and [Health-Aware Routing](/distributed-systems/en/communication/load-balancing/health-aware-routing/) is only as good as the signals it uses. Do not size a replication or backup path from the NIC's rated speed. And do not build failover logic on the assumption that partitions are clean and symmetric: test partial and one-way partitions explicitly with [fault injection](/distributed-systems/en/resilience/chaos-engineering/fault-injection/), not only full node isolation.
+
+What a node may conclude from silence is the subject of [Failure Models](/distributed-systems/en/foundations/system-models/failure-models/) and [Heartbeats and Timeout Configuration](/distributed-systems/en/resilience/failure-detection/heartbeats-timeouts/). This page is also distinct from application-level flow control, where the receiver of requests rather than the transport limits the sender, covered in [Backpressure](/distributed-systems/en/resilience/flow-control/backpressure/).
+
+## Further Reading
+
+- Matthew Mathis, Jeffrey Semke, Jamshid Mahdavi, and Teunis Ott, *The Macroscopic Behavior of the TCP Congestion Avoidance Algorithm*, ACM SIGCOMM Computer Communication Review, 1997.
+- Vijay Vasudevan et al., *Safe and Effective Fine-grained TCP Retransmissions for Datacenter Communication*, ACM SIGCOMM, 2009.
+- Peng Huang et al., *Gray Failure: The Achilles' Heel of Cloud-Scale Systems*, HotOS, 2017.
+- Ahmed Alquraan, Hatem Takruri, Mohammed Alfatafta, and Samer Al-Kiswany, *An Analysis of Network-Partitioning Failures in Cloud Systems*, USENIX OSDI, 2018.
+- Mohammed Alfatafta, Basil Alkhatib, Ahmed Alquraan, and Samer Al-Kiswany, *Toward a Generic Fault Tolerance Technique for Partial Network Partitioning*, USENIX OSDI, 2020.
+- Amazon Web Services, *Summary of the AWS Service Event in the Northern Virginia (US-EAST-1) Region*, 2021. https://aws.amazon.com/message/12721/
