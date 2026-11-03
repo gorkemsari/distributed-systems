@@ -1,205 +1,228 @@
 ---
-title: "1.1.2. Cost-Performance Curves and Hardware Limits"
-description: "A hardware-level analysis of CPU frequency walls, memory latency stagnation, storage I/O cliffs, and the non-linear cost curves that determine when vertical scaling becomes economically irrational."
-lastUpdated: 2026-05-13
-sidebar:
-  order: 2
+title: Cost-Performance Curves and Hardware Limits
+description: How linear hardware prices meet sublinear capacity, which physical limits in cores, memory, PCIe, network, and burst budgets bend the curve, and how to pick the node size with the lowest cost per unit of useful work.
+lastUpdated: 2026-11-03
 ---
 
-The decision to distribute a system is not primarily a software decision — it is a hardware economics decision. Distributed systems exist because the cost of buying more performance from a single machine eventually exceeds the cost of coordinating multiple machines, and because certain hardware limits are not merely expensive to overcome but physically impossible. Understanding *where* those limits are and *what shape the cost curve takes* as you approach them is prerequisite knowledge for any architectural decision involving scale.
- 
-## The End of Free Performance: Dennard Scaling and Moore's Law
- 
-For three decades, engineers could ignore hardware constraints and expect performance to improve for free. Two empirical observations made this possible.
- 
-**Moore's Law** (1965) observed that transistor density on integrated circuits doubles approximately every two years. More transistors meant more capability: larger caches, more sophisticated out-of-order execution units, wider SIMD lanes.
- 
-**Dennard Scaling** (1974) observed that as transistors shrank, they also consumed proportionally less power and switched faster. Shrinking a transistor by 50% allowed clock frequency to increase by ~40% while keeping power density constant. This is why CPU clock speeds went from ~1 MHz in 1980 to ~3 GHz by 2003: 23 years of roughly doubling every 18 months.
- 
-Both of these tailwinds ended at different times and for different reasons.
- 
-Dennard Scaling **broke down around 2004-2006**. As transistors shrank below ~90nm, leakage current — current that flows even when the transistor is nominally "off" — became a dominant component of total power. Increasing clock frequency past ~3-4 GHz caused power density to exceed what cooling systems could practically dissipate. The thermal wall is real: Intel's Prescott-generation Pentium 4 at 3.8 GHz consumed ~115 W on a 90nm process; doubling to ~7 GHz would have required ~460 W from the CPU alone, exceeding the thermal envelope of any practical cooling solution.
- 
-The industry response was to stop increasing clock frequency and instead add more cores. A modern high-end server CPU (AMD EPYC 9654, Intel Xeon Platinum 8592+) runs at 2.4-3.7 GHz base clock — barely faster than CPUs from 2003 — but has 96-128 cores. **Sequential single-threaded performance has improved only modestly since 2005.** The benchmark most relevant to software performance, single-core IPC (Instructions Per Cycle) gain, has averaged roughly 3-5% per year since then, versus the 50%+ annual gains of the Dennard scaling era.
- 
-Moore's Law for transistor density has also slowed dramatically. The 18-month doubling cadence held until roughly 2012-2015. Since then, each process node transition has taken longer and delivered smaller density gains. TSMC's N3 and N2 nodes deliver meaningful improvements, but each generation costs exponentially more to design for and manufacture: an N2 mask set costs over $20 million, which is why only Apple, NVIDIA, AMD, and a handful of others can afford leading-edge silicon.
- 
-The practical consequence for systems architects: **you cannot count on hardware performance catching up to your software's demands.** The era in which you could defer a scalability decision by waiting a few years for faster hardware is over.
- 
-```mermaid
-flowchart LR
-    subgraph Era1["1980-2003: Dennard Scaling Era"]
-        D1[Clock speed doubles\nevery ~18 months]
-        D2[Single-thread performance\nimproves ~50% per year]
-        D3[No architectural change\nneeded -- wait for hardware]
-    end
-    subgraph Era2["2004-Present: Post-Dennard Era"]
-        D4[Clock speed plateaued\nat 3-5 GHz]
-        D5[Single-thread gains\n~3-5% per year]
-        D6[Scale requires parallelism:\nmore cores, more machines]
-    end
-    Era1 -->|thermal wall ~2004| Era2
-```
-*The Dennard Scaling collapse shifted the burden of performance improvement from hardware to software and architecture.*
- 
-## CPU Cost-Performance Curves
- 
-Within the vertical scaling model, CPU cost does not scale linearly with performance. Three distinct regimes exist in cloud and on-premises hardware markets.
- 
-**Commodity compute regime (1-16 vCPU):** The most densely manufactured and aggressively priced tier. Hyperscaler cloud providers run millions of these instances. Price/performance is at its peak here. An 8-vCPU instance gives you roughly 8x the compute of a 1-vCPU instance at close to 8x the price — the relationship is approximately linear.
- 
-**Mid-range regime (16-64 vCPU):** Still commodity but larger instances begin carrying a moderate premium. The primary driver is that larger instances require larger physical hosts, and not all rack configurations can accommodate them. Memory-to-CPU ratios diverge into specialized instance families (compute-optimized, memory-optimized, storage-optimized), each carrying different per-vCPU prices. Expect a 10-25% premium over the linear extrapolation from the commodity tier.
- 
-**Large-instance regime (64-192+ vCPU):** Non-linear cost growth. These instances occupy entire physical hosts or require multi-socket NUMA configurations. The workloads that need them are few and specific (large in-memory databases, high-frequency trading platforms, real-time simulation). Cloud providers price them with 40-100% premiums over linear extrapolation, and bare-metal equivalents often cost 3-5x more than the equivalent aggregated smaller instances.
- 
+A cost-performance curve plots the price of a unit of useful work (requests per second served within a latency objective, gigabytes scanned per second, writes committed per second) against the size of the hardware that delivers it. The quantity that matters is not the price of a machine and not its peak benchmark score, but the ratio of the two measured at the operating point the service actually runs at. That ratio is almost never constant: it rises at the small end, where fixed per-node costs and burst budgets dominate, and rises again at the large end, where shared physical resources inside one server stop growing with core count.
+
+The core trade-off follows from that shape. Larger nodes amortize fixed overheads and reduce coordination between machines, but they buy capacity at a worsening rate, concentrate more of the fleet into each failure, and are harder to replace quickly. Smaller nodes keep each unit of capacity cheap and each failure small, but they pay a constant tax per node and often sit behind throttles that only appear under sustained load. The cheapest fleet is usually built from mid-size nodes, and finding the actual minimum requires a benchmark, not a price list.
+
+This page explains why the curve bends: price models, the physical limits that cap a single server, and the fleet effects of redundancy and rounding. The contention and coherency laws that make software scale sublinearly on one machine are the canonical subject of [The Scaling Dilemma](/distributed-systems/en/foundations/monoliths-to-distributed/scaling-dilemma/); this page uses their results without re-deriving them.
+
+## Linear Prices, Bent Capacity
+
+Cloud providers price general-purpose instances linearly within a family. At the time of writing, AWS lists the `m7i` family in us-east-1 at $0.1008 per hour for `m7i.large` (2 vCPUs) and $9.6768 per hour for `m7i.48xlarge` (192 vCPUs): exactly $0.0504 per vCPU-hour at every size, including the bare-metal variants. Prices change and differ by region, but the linearity within a family is a deliberate property of the price list, and it is the source of a common misreading: if doubling the instance doubles the price, it is tempting to assume it also doubles the capacity.
+
+Owned hardware is not linear even in price. Within a processor generation, the highest-core-count and highest-frequency SKUs cost more per core than the middle of the range; the highest-capacity memory modules typically cost more per gigabyte than mid-capacity ones, and filling every slot can force the memory to run at a lower transfer rate; four- and eight-socket servers cost far more per core than two-socket ones. Power, cooling, and floor space add a share that Barroso, Hölzle, and Ranganathan show in *The Datacenter as a Computer* to be a large part of total cost of ownership; the cloud folds all of this into a linear hourly price. Software licensed per core, such as commercial databases, adds a further linear-or-worse term that can exceed the hardware cost and that pushes buyers toward fewer, faster cores rather than many slow ones.
+
+Capacity, in contrast, bends on every platform. Contention on shared locks and coherence traffic between cores make throughput grow more slowly than core count, and past a peak it falls; [The Scaling Dilemma](/distributed-systems/en/foundations/monoliths-to-distributed/scaling-dilemma/) quantifies this with Amdahl's Law and the Universal Scalability Law. Below the software, the hardware itself contributes: memory bandwidth, last-level cache, and I/O lanes are fixed per socket, so a larger slice of a server receives proportionally less of each per core once the slice approaches the whole host. Dividing a linear price by a bent capacity gives a unit cost that rises at the large end.
+
+The small end bends for a different reason. Every node carries a fixed cost independent of its size: the operating system, container runtime and node agent, log and metric collectors, security agents, mesh sidecars, and a managed runtime's baseline heap. On a 2-vCPU node, half a vCPU of fixed overhead is a quarter of the machine; on a 32-vCPU node it is under 2%. Small sizes also carry burst-based limits, covered below, that make sustained capacity lower than headline numbers. Kubernetes makes the fixed part explicit through node allocatable resources, the capacity left after system and kubelet reservations; how those reservations and pod requests interact is covered in [Resource Management and QoS](/distributed-systems/en/kubernetes/runtime-and-operations/resource-management-qos/).
+
+### Worked Example: The Unit-Cost Curve of One Service
+
+Assume a stateless API service that must serve a peak of 60,000 requests per second within its p99 latency objective. All performance numbers in this example are illustrative; the prices are the `m7i` list prices quoted above. A load test runs the service on six instance sizes, each at full sustained load, and records the throughput each node delivers while still meeting the latency objective. The model behind the illustrative results is simple: each node loses 0.5 vCPU to fixed overhead, and the remaining vCPUs deliver 1,000 requests per second each at small sizes, with efficiency falling to 98% at 4 vCPUs, 95% at 8, 90% at 16, 80% at 32, and 65% at 64 as memory bandwidth and coherence costs rise.
+
+| vCPUs | Price per hour | Throughput at SLO (req/s) | Cost per 1,000 req/s per hour | Nodes for 3 zones | Fleet cost per hour |
+|---|---|---|---|---|---|
+| 2 | $0.1008 | 1,500 | 6.72 cents | 60 | $6.05 |
+| 4 | $0.2016 | 3,430 | 5.88 cents | 27 | $5.44 |
+| 8 | $0.4032 | 7,125 | 5.66 cents | 15 | $6.05 |
+| 16 | $0.8064 | 13,950 | 5.78 cents | 9 | $7.26 |
+| 32 | $1.6128 | 25,200 | 6.40 cents | 6 | $9.68 |
+| 64 | $3.2256 | 41,275 | 7.81 cents | 3 | $9.68 |
+
+The fourth column is the unit-cost curve. It falls from 2 to 8 vCPUs as the fixed overhead is amortized, bottoms out at 8, and climbs as efficiency declines, reaching 38% above the minimum at 64 vCPUs.
+
 ```mermaid
 xychart-beta
-    title "Approximate Cloud CPU Price/Performance Curve"
-    x-axis "vCPU Count" [1, 2, 4, 8, 16, 32, 48, 64, 96, 128, 192]
-    y-axis "Relative Cost per vCPU (normalized to 1)" 0.5 --> 3.5
-    line [1.0, 1.0, 1.0, 1.02, 1.05, 1.15, 1.3, 1.55, 1.9, 2.4, 3.2]
+    title "Cost per 1,000 req/s per hour by node size (illustrative)"
+    x-axis "Node size (vCPUs)" [2, 4, 8, 16, 32, 64]
+    y-axis "US cents" 0 --> 9
+    bar [6.72, 5.88, 5.66, 5.78, 6.40, 7.81]
+    line [6.72, 5.88, 5.66, 5.78, 6.40, 7.81]
 ```
-*Relative per-vCPU cost increases non-linearly as instance size grows. The inflection point varies by cloud provider but typically begins around 32-48 vCPU.*
- 
-The more significant CPU limit is not cost but **single-thread throughput**. Any workload with a critical path that is fundamentally sequential — parsing a complex query plan, executing a stored procedure, running a single-threaded event loop — cannot exploit additional cores. Latency-sensitive applications that must minimize the time to complete a single operation are bounded by single-core performance, which has barely moved in 20 years and will not meaningfully improve on current roadmaps.
- 
-## Memory: The Latency Stagnation Problem
- 
-Memory is the most misunderstood hardware scaling dimension because two very different properties — **capacity** and **latency** — have diverged dramatically since the 1990s.
- 
-**DRAM capacity** has continued to grow. A single DIMM today holds 64-256 GB. A fully populated dual-socket server can reach 12 TB of DRAM. Capacity is not the bottleneck.
- 
-**DRAM latency** has barely improved in 25 years. In 2000, DDR1 SDRAM had a typical random-access latency of ~60 ns. In 2024, DDR5-6400 has a typical CAS latency of ~14 ns at the module level — but this is the cycle-count latency, not wall-clock latency. At higher clock speeds, the *absolute* wall-clock latency of DDR5 is 14 cycles × (1 / 6.4 GHz) ≈ **2.2 ns per cycle, multiplied by CAS 46** ≈ roughly 14 ns for the best-case local DIMM access. In practice, including memory controller overhead, row precharge, and bank conflicts, typical effective latency for a random cache-miss access is **60-80 ns for DDR5** — essentially unchanged from DDR1.
- 
-The consequence: CPU caches exist specifically to hide this latency. L1 cache access is ~1 ns, L2 is ~5 ns, L3 is ~20-40 ns. Code that fits its working set in L3 cache runs fast. Code that generates cache misses into DRAM runs slow — and adding more RAM does not make those misses faster.
- 
+*Unit cost from the table above. The minimum sits in the middle of the range, and both ends are more expensive for different reasons.*
+
+The curve is flat near its minimum: 4, 8, and 16 vCPUs are within 4% of each other. That flatness is typical and important, because the fleet-level effects in the last two columns are larger than the differences along the bottom of the curve. The service must survive the loss of one of three availability zones, so each zone must carry half the peak on its own, 30,000 requests per second, and the fleet is provisioned for 90,000 in total. With `n` equal failure domains and one allowed to fail, the provisioning factor is `n / (n - 1)`: 2.0 for two zones, 1.5 for three, 1.33 for four. That factor applies to every size alike; what differs is rounding.
+
+Nodes come in whole units, and the number of nodes per zone is the ceiling of 30,000 divided by per-node throughput. At 8 vCPUs that is `ceil(4.21) = 5` nodes per zone, which provisions 19% more capacity than the zone needs only because 4.21 was rounded up. At 4 vCPUs it is `ceil(8.75) = 9`, only 3% more than needed. The 4-vCPU fleet is therefore the cheapest, at $5.44 per hour, even though 8 vCPUs has the lowest unit cost. At the large end the effect is extreme: one 64-vCPU node per zone provides 41,275 requests per second against a need of 30,000, and the fleet costs 78% more than the 4-vCPU fleet. Coarse granularity also hurts autoscaling, since every scaling step adds a large fixed increment; [Cluster Autoscaling](/distributed-systems/en/kubernetes/runtime-and-operations/cluster-autoscaling/) covers how node-size choice interacts with bin packing.
+
+:::caution[A linear price list does not mean linear capacity]
+Equal cost per vCPU across sizes is a property of the price list, not of the hardware. Compare sizes by cost per unit of work measured at the latency objective and at sustained load. Extrapolating from one size, in either direction, is the most common way capacity plans go wrong by a factor that the price list hides.
+:::
+
+## Physical Limits Inside One Server
+
+The large end of the curve bends because some resources of a server do not grow when cores are added. Knowing which ones explains why the largest instance in a family can be a poor buy for one service and the right one for another.
+
+### Frequency Stopped Scaling; Cores Did Not
+
+For several decades, shrinking transistors made them both faster and more power efficient, because supply voltage could be reduced along with feature size. Dennard and colleagues described this scaling in 1974: power density stayed roughly constant while frequency rose. By the mid-2000s, leakage current made further voltage reduction impractical, and since dynamic power is proportional to capacitance times voltage squared times frequency, raising frequency without lowering voltage raised power density beyond what a chip could dissipate. Clock rates stopped climbing, and processor vendors spent each new transistor budget on more cores, larger caches, and wider vector units instead.
+
+Per-core performance still improves each generation, but slowly, while core counts per socket have grown much faster. Work that cannot be parallelized, such as a single hot key, a single-threaded event loop, or one partition's log append, is therefore limited by a resource that money barely moves: a larger server adds cores the serial part cannot use.
+
+Frequency also depends on load. A processor boosts a few cores highest when most are idle and lowers all-core frequency as more cores become active, to stay within power and thermal limits, so a benchmark with a handful of busy threads measures each core faster than it will run at full production load.
+
+### The Memory Wall: Bandwidth per Core Falls
+
+Wulf and McKee named the "memory wall" in 1995: processor speed was improving much faster than DRAM latency, so a growing share of execution time would be spent waiting for memory. Main-memory latency has stayed on the order of 100 nanoseconds for decades. Bandwidth has improved, but it is provisioned per socket, not per core.
+
+The arithmetic follows from the memory standard and the channel count. A DDR5-4800 channel transfers 4,800 million times per second over a 64-bit (8-byte) data path, a theoretical peak of 38.4 GB/s. AMD's EPYC 9004 (Genoa) processors have 12 such channels per socket, 460.8 GB/s in total, and Intel's 4th-generation Xeon Scalable (Sapphire Rapids) processors have 8 channels, 307.2 GB/s. How that divides among cores depends entirely on which SKU fills the socket.
+
+```mermaid
+xychart-beta
+    title "Theoretical DRAM bandwidth per core (DDR5-4800, one socket)"
+    x-axis ["Genoa 32c", "Sapphire Rapids 60c", "Genoa 96c", "Bergamo 128c"]
+    y-axis "GB/s per core" 0 --> 16
+    bar [14.4, 5.1, 4.8, 3.6]
+```
+*Peak channel bandwidth divided by core count. Sustained bandwidth is lower, and the ratio between configurations is what matters.*
+
+The chart shows a factor of four between SKUs that fit the same platform. A 32-core Genoa part gives each core 14.4 GB/s of theoretical bandwidth; the 96-core part gives 4.8 GB/s; the 128-core Bergamo part, built from denser cores on the same 12-channel socket, gives 3.6 GB/s. For compute-bound work (request parsing, compression, cryptography with data in cache) the denser part is excellent value per core. For memory-bound work (scans, hash joins, in-memory analytics, large hash tables with random access) it is not: once the sum of all cores' demand reaches the sustained bandwidth of the socket, additional cores only queue at the memory controllers. Assume a scan that needs 3 GB/s of memory traffic per core to run at full speed and a socket that sustains about 75% of theoretical peak, about 345 GB/s on Genoa: the socket saturates at roughly 115 active cores, so a 128-core Bergamo part delivers no more scan throughput than one with 115 cores, and cores beyond that point are paid for and idle.
+
+Cloud instances inherit this. A fractional instance competes with its neighbors for last-level cache and memory bandwidth, which no instance size reserves. The largest size usually occupies the whole host, which removes neighbors but often spans two sockets and therefore two NUMA nodes, whose coherence cost is analyzed in [The Scaling Dilemma](/distributed-systems/en/foundations/monoliths-to-distributed/scaling-dilemma/). Memory capacity is capped too, by channels times slots times the largest module, and a second module per channel commonly lowers the supported transfer rate.
+
+### I/O Lanes, Network Interfaces, and Storage
+
+Everything a server exchanges with the outside world passes through PCI Express (PCIe) lanes, and the lane budget per socket is fixed by the processor. A PCIe 4.0 lane carries 16 gigatransfers per second with 128b/130b encoding, about 1.97 GB/s per direction, so an x16 slot carries about 31.5 GB/s, roughly 252 Gb/s. That is enough for a 200 Gb/s network interface but not for a 400 Gb/s one, which needs PCIe 5.0 x16 at about 63 GB/s per direction. An NVMe drive typically uses four lanes, about 7.9 GB/s per direction on PCIe 4.0, which is why high-end drives of that generation top out a little below that figure for sequential reads.
+
 ```mermaid
 flowchart LR
-    CPU[CPU Core\n~3-4 GHz] -->|~1 ns| L1["L1 Cache\n64 KB per core"]
-    L1 -->|~5 ns| L2["L2 Cache\n512 KB - 2 MB"]
-    L2 -->|~20-40 ns| L3["L3 Cache\n32-512 MB shared"]
-    L3 -->|~60-80 ns| DRAM["DRAM\n64 GB - 12 TB"]
-    DRAM -->|+30-50 ns| NUMA["Remote NUMA\nDIMM"]
-    DRAM -->|~1-10 us| NVMe["NVMe SSD\n(as swap/tmpfs)"]
-    style L3 fill:#27ae60,color:#fff
-    style DRAM fill:#e67e22,color:#fff
-    style NUMA fill:#c0392b,color:#fff
+    subgraph SOCK["One CPU socket"]
+        CORES["Cores (fixed count per SKU)"]
+        MC["Memory controllers"]
+        PCIE["PCIe root complex (fixed lane budget)"]
+        CORES --- MC
+        CORES --- PCIE
+    end
+    MC -->|"N channels x 38.4 GB/s (DDR5-4800)"| DRAM["DRAM"]
+    PCIE -->|"x16 Gen4: ~31.5 GB/s per direction"| NIC["Network interface"]
+    PCIE -->|"x4 Gen4 per drive: ~7.9 GB/s"| NVME["Local NVMe SSDs"]
+    NIC -->|"provider caps: aggregate, per flow, PPS, connections"| NET["Datacenter network"]
 ```
-*Memory hierarchy latency: the gap between L3 cache and DRAM is the single most impactful performance cliff in modern systems. Remote NUMA adds another 30-50 ns on top.*
- 
-**Memory bandwidth** is the other dimension. A modern DDR5 dual-channel system delivers ~100 GB/s of peak bandwidth. A 4-channel high-end workstation system reaches ~200 GB/s. These numbers sound large but are easily saturated by data-intensive workloads. An in-memory database scanning a large table touches every byte once — at 100 GB/s, scanning 1 TB takes 10 seconds of raw memory bandwidth, ignoring all processing overhead.
- 
-Adding more RAM does not increase bandwidth (adding DIMMs to existing channels does not linearly add bandwidth — only adding channels does). This is why memory-optimized cloud instances exist: they configure more DRAM channels per socket to increase bandwidth alongside capacity.
- 
-:::caution
-A common vertical scaling mistake is adding RAM to fix a performance problem caused by cache-miss-heavy access patterns. If your workload accesses memory with poor locality — random key lookups in a hash map larger than L3 cache, for example — adding more RAM makes more data *available* but does not make access *faster*. The fix is data structure redesign (cache-friendly layouts, smaller records, better locality through partitioning), not more DIMM slots.
-:::
- 
-## Storage: The IOPS Cliff and Bandwidth Economics
- 
-Storage performance has improved more dramatically than any other hardware dimension in the past decade, primarily through the NVMe SSD revolution. Understanding the current curves requires distinguishing between three access dimensions: **latency**, **IOPS**, and **throughput (bandwidth)**.
- 
-| Storage Type | Latency (random 4K read) | Max IOPS (single device) | Sequential Throughput | Price per GB |
+*Fixed per-socket budgets that do not grow with core count. In the cloud, the provider's per-instance caps on the network path usually bind before the hardware does.*
+
+Each arrow is a budget set by the platform and shared by every core in the socket, so adding cores without adding channels or lanes divides those budgets more finely, the same effect the memory chart shows. The rightmost arrow has an extra layer in the cloud: per-instance limits that are usually lower than the physical interface and that scale with instance size.
+
+AWS documents several such limits. Instances with 16 vCPUs or fewer typically list their bandwidth as "up to" a figure: they have a lower baseline and burst above it with network I/O credits, for a period AWS describes as typically 5 to 60 minutes depending on size, and burst is best effort even with credits left. A single flow between instances outside a cluster placement group is limited to 5 Gbps regardless of instance size. Separate allowances cap aggregate bandwidth, packets per second, and the number of tracked connections. A service sized on aggregate bandwidth can therefore be capped by a single replication stream or by its connection count long before its interface is busy. The broader treatment of bandwidth, topology, and network failure belongs to [Network Reliability, Bandwidth Limitations, and Topology Changes](/distributed-systems/en/foundations/monoliths-to-distributed/network-reliability/).
+
+Storage adds a latency ladder: as orders of magnitude, a local NVMe read takes tens to around a hundred microseconds, network-attached block storage adds a network round trip (sub-millisecond to low milliseconds), and object storage takes tens of milliseconds. Network-attached volumes have per-instance throughput and IOPS ceilings that scale with instance size. Local NVMe is the cheapest IOPS available, but its data does not survive the instance, which shifts cost into replication and rebuild traffic.
+
+## Comparing Node Classes
+
+The choice is rarely between arbitrary sizes; it is between a few classes, each with a different position on the curve and different hidden limits.
+
+| Node class | Unit cost | Hidden limits | Failure granularity | When to prefer |
 |---|---|---|---|---|
-| 7200 RPM HDD | 3-10 ms | 80-200 IOPS | 150-250 MB/s | $0.02-0.05 |
-| SATA SSD (TLC) | 50-100 µs | 80K-100K IOPS | 500-560 MB/s | $0.06-0.10 |
-| NVMe SSD (TLC) | 20-100 µs | 700K-1.2M IOPS | 3-7 GB/s | $0.10-0.20 |
-| NVMe SSD (Optane/PLC) | 7-10 µs | 1.5M+ IOPS | 7-14 GB/s | $0.50-2.00 |
-| DRAM (as tmpfs) | 60-80 ns | ~10B+ effective | 50-200 GB/s | $3-10 per GB |
- 
-The critical observation: **NVMe SSDs have effectively eliminated storage latency as a bottleneck for most database workloads.** A random 4K read at 20 µs latency means 50,000 IOPS per second from a single device. PostgreSQL on NVMe storage achieves 99th-percentile query latencies that were impossible on spinning disk systems regardless of how much you paid.
- 
-However, the *cost* curve for storage IOPS is non-linear at the high end. Cloud block storage (AWS EBS `gp3`, GCP Persistent Disk) is priced by both capacity (per GB-month) and provisioned IOPS (per IOPS-month) separately. The economics break down quickly for IOPS-intensive workloads:
- 
-- `gp3` at baseline: 3,000 IOPS included, $0.08/GB-month
-- `gp3` at 16,000 IOPS: +$0.005 per provisioned IOPS beyond 3,000 — adds $65/month for 13,000 additional IOPS
-- `io2` (dedicated IOPS): $0.125/GB-month + $0.065 per IOPS — a 100K IOPS volume costs $6,500/month in IOPS charges alone
-At this cost level, **local NVMe storage on a dedicated instance becomes significantly cheaper for IOPS-intensive workloads** like high-write databases. A storage-optimized instance (AWS `i4i.8xlarge`, 3.75 TB NVMe, ~2.5M read IOPS) costs ~$2.50/hour versus an EBS `io2` volume providing equivalent IOPS at $9+/hour. The operational cost is higher (you manage your own RAID, replication, and backup), but the economics are clear for workloads that saturate provisioned IOPS.
- 
+| Burstable small (credit-based CPU) | Lowest list price, highest under sustained load | CPU baseline, network and storage burst budgets | Very small | Spiky, mostly idle workloads: development, low-traffic internal tools |
+| Small fixed-performance (2-4 vCPU) | High fixed-overhead share | Network and storage "up to" bandwidth | Small | Many independent replicas, strict per-tenant isolation, fine autoscaling steps |
+| Mid-size (8-32 vCPU) | Usually near the minimum | Fewest; shared host resources with neighbors | Moderate | Default for stateless tiers and most stateful partitions |
+| Largest or whole-host | Rising: memory bandwidth, NUMA, coherence | Replacement availability, long rebuilds | Large | State that must live in one memory, per-core licensing, noisy-neighbor elimination |
+| Specialized (high-memory, storage-dense, high-frequency) | Low for the one resource it maximizes | Limited capacity pools, fewer regions | Large | Workloads bound by one resource that a general family under-provisions |
+
+"Unit cost" here is cost per unit of useful work at sustained load, the fourth column of the worked example. "Failure granularity" is how much of the fleet disappears with one node, which sets rounding waste and blast radius. A specialized family can be the cheapest way to buy the one resource a workload is bound by, and also the class most likely to be unavailable when a replacement is needed.
+
+:::tip[Benchmark at sustained load, after the burst window]
+Run each candidate size at full load for longer than its longest burst window, with all cores busy and with the production mix of sidecars and agents installed. A ten-minute test on a fresh instance measures credits, boost frequency, and an empty cache, none of which exist at hour three of peak traffic. Record throughput at the latency objective, not peak throughput.
+:::
+
+## Measuring Where a Node Hits Its Limits
+
+A node can be capped by its provider, its memory system, or its own software, and each leaves a distinct signature. Provider caps are the easiest to miss, because utilization metrics inside the guest look normal while packets are being queued or dropped outside it. On AWS, the Elastic Network Adapter (ENA) driver exposes cumulative counters for each allowance:
+
+```shell
+# Packets queued or dropped because an instance allowance was exceeded.
+# Any steadily increasing value means the provider cap, not the app, is the limit.
+ethtool -S eth0 | grep -E 'allowance_exceeded|allowance_available'
+# bw_in/bw_out: aggregate bandwidth; pps: packets per second;
+# conntrack: tracked-connection limit; linklocal: DNS/metadata/time services
+```
+
+The counters require ENA driver 2.2.10 or later. Exporting them as metrics turns an invisible throttle into an alertable one. For burstable CPU instances, the CloudWatch metric `CPUCreditBalance` shows how close an instance is to its baseline; inside the guest, a credit-throttled instance commonly shows rising steal time while its own utilization appears capped. Burst-based block volumes publish a burst balance metric that falls the same way.
+
+Memory-bound saturation shows as throughput flattening while CPU utilization keeps rising: cores are busy waiting. Hardware counters show falling instructions per cycle and rising last-level-cache misses, and vendor tools such as Intel Performance Counter Monitor and AMD uProf report per-socket memory bandwidth. A quick test is to give the process half the cores: if throughput barely drops, the memory system is the limit. Load testing procedure and capacity validation are covered in [Load and Performance Testing](/distributed-systems/en/deployment/distributed-testing/load-performance-testing/).
+
+## Failure Modes Along the Curve
+
+Failures here are capacity plans wrong by a hidden factor, which surface later, under sustained load or during recovery.
+
+### The Burst Cliff
+
+Trigger: a service sized on a node class whose CPU, network, or storage capacity depends on a credit balance, followed by sustained demand above baseline. Symptoms: performance is normal for minutes to hours, then drops abruptly to the baseline although the workload has not changed. The delay makes the cause hard to see, because the cliff arrives long after the load began. Recovery events are a frequent trigger, since a rebuild or catch-up after a failure is exactly the kind of long, sustained transfer that burst budgets are not designed for.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant L as Leader replica (4xlarge, burst bandwidth)
+    participant N as Replacement replica
+    participant C as Clients
+    participant M as Monitoring
+    Note over L,N: T+0: replica lost, rebuild starts at burst bandwidth
+    L->>N: Stream snapshot and log at burst rate
+    C->>L: Normal read and write traffic
+    Note over L: T+20m: outbound network I/O credits exhausted
+    L->>N: Stream continues at baseline only
+    rect rgb(70, 40, 40)
+    C->>L: Requests arrive, replies queue behind the rebuild stream
+    L-->>C: p99 latency several times baseline
+    M->>M: bw_out_allowance_exceeded rising, guest NIC metrics normal
+    end
+    Note over L,N: Rebuild takes several times the planned duration
+    Note over L: Redundancy is reduced for the whole extended window
+```
+*Burst exhaustion during a replica rebuild. Timings are illustrative.*
+
+Steps 1 and 3 carry the same rebuild, but at different rates, and nothing in the application changed between them. Steps 4 to 6 are the visible incident: client traffic and rebuild traffic now share the baseline bandwidth, latency rises, and in-guest interface utilization looks unremarkable because the queueing happens in the provider's enforcement layer. The longer-term cost is in the final note: a rebuild planned for minutes now takes hours, and the replica set runs with reduced redundancy for that entire window. Detection: allowance counters, credit balance metrics, and rebuild throughput plotted over time. Mitigation: size nodes that carry rebuild traffic on baseline, not burst figures; throttle rebuilds explicitly so client traffic keeps a reserved share; use fixed-performance families for any node whose recovery path moves bulk data. If slow replicas are then retried or rerouted, the extra load can cascade, as described in [Failure Propagation: Cascading Failure Analysis](/distributed-systems/en/foundations/system-models/cascading-failure/).
+
+### Extrapolating Across Sizes
+
+Trigger: capacity planned by benchmarking one size and multiplying. Symptoms: a move to larger nodes delivers far less than planned at peak while looking fine at low traffic, or a move to smaller nodes loses more than planned because fixed overhead was invisible on the larger ones. Detection: per-node throughput at the latency objective compared across sizes, and instructions per cycle. Mitigation: benchmark at least three sizes at sustained load, and keep the previous size deployable until the new one has survived a full peak.
+
+### Noisy Neighbors on Shared Hosts
+
+Trigger: another tenant on the same host saturates shared last-level cache or memory bandwidth. Symptoms: identical nodes differ in latency with no change in their own load. Detection: per-node latency distributions across the fleet, steal time, and cache-miss counters. Mitigation: replace persistently slow nodes and move latency-critical tiers to whole-host sizes or dedicated hosts; isolation between your own workloads on one node follows the [bulkhead](/distributed-systems/en/resilience/protection-patterns/bulkhead-pattern/) principle.
+
+### No Capacity for the Replacement
+
+Trigger: a design that depends on one large or specialized instance type, followed by a failure that requires a replacement in a specific zone. Symptoms: the replacement launch fails with an `InsufficientInstanceCapacity` error, and the outage or the period of reduced redundancy lasts until capacity appears. The larger and more specialized the type, the smaller the pool it is drawn from. Detection: launch failures in autoscaling and provisioning logs, and time-to-replace as a tracked metric. Mitigation: allow several instance families and sizes for each role, reserve capacity for roles that cannot run on substitutes (AWS On-Demand Capacity Reservations, for example), and keep warm standbys for nodes whose loss cannot wait.
+
+:::note[What this page does not cover]
+Purchasing and commitment strategy (reserved capacity, savings plans, spot instances) and the practice of monitoring and reducing spend belong to [Cost Optimization](/distributed-systems/en/deployment/platform-engineering/cost-optimization/). This page covers the shape of the curve those decisions are applied to.
+:::
+
+## Choosing a Point on the Curve
+
+The decision has three inputs: the measured unit-cost curve, the redundancy rule, and the time it takes to replace a node. Order matters, because fleet effects are larger than the differences near the minimum.
+
 ```mermaid
 flowchart TD
-    Q1{IOPS requirement?}
-    Q1 -->|under 10K| A1[Cloud managed storage\ngp3 economics are favorable]
-    Q1 -->|10K - 100K| A2[Compare gp3 provisioned vs.\nlocal NVMe instance cost\nBreakeven typically 50-80K IOPS]
-    Q1 -->|over 100K| A3[Local NVMe almost always wins\non cost -- manage replication yourself]
-    A2 -->|throughput-bound\nnot IOPS-bound| A4[io2 may still make sense\nfor sequential I/O workloads]
+    A["Workload and latency objective defined"] --> B{"Bound by one resource a general family under-provisions?"}
+    B -->|"Yes: memory, local disk, frequency"| C["Shortlist that specialized family"]
+    B -->|No| D["Shortlist a general-purpose family"]
+    C --> E["Benchmark 3+ sizes at sustained load, after burst windows"]
+    D --> E
+    E --> F["Compute unit cost at the latency objective"]
+    F --> G["Apply redundancy factor and whole-node rounding per zone"]
+    G --> H{"Can a replacement be obtained and rebuilt within the redundancy window?"}
+    H -->|No| I["Step down one size or add a second instance family"]
+    I --> G
+    H -->|Yes| J["Choose the cheapest fleet; re-measure each hardware generation"]
 ```
-*Storage economics decision: the IOPS cost on managed block storage becomes prohibitive above ~50-80K sustained IOPS.*
- 
-## Network: Bandwidth Has Scaled, Latency Has Not
- 
-Network hardware has followed a similar trajectory to storage: throughput has improved dramatically, latency has not.
- 
-**Bandwidth progression:** 1 GbE (2000s) → 10 GbE (2010s standard) → 25 GbE per server (2016+) → 100 GbE (hyperscalers, 2018+) → 400 GbE (emerging, 2022+). Cloud instances now routinely offer 25-100 Gbps network bandwidth. This means network throughput is rarely the bottleneck for distributed data transfer within a data center or cloud region.
- 
-**Latency:** Same-rack latency on a modern 25 GbE network with a modern NIC is approximately 5-20 µs for a raw packet round trip at the hardware level. Software overhead adds significantly more: the Linux kernel's TCP/IP stack processes a packet in ~10-30 µs under light load, bringing practical application-level round-trip latency to 50-100 µs. This is the number that matters for distributed systems — it is the irreducible floor on any cross-machine operation, and it is essentially unchanged from 10 GbE hardware 15 years ago.
- 
-This latency floor has significant implications for distributed database designs. A distributed transaction that requires two sequential network round trips (coordinator → participant 1 → coordinator → participant 2) cannot complete in less than ~200-400 µs even with perfect code, regardless of how fast the network hardware is. This is why systems like Google Spanner and CockroachDB have minimum transaction latency measured in single-digit milliseconds — that latency is not a software implementation limitation, it is a physical constraint of the speed of light and network stack overhead.
- 
-**Kernel bypass networking (DPDK, RDMA)** eliminates the kernel overhead by having applications read directly from NIC hardware, reducing latency to ~1-5 µs. This is used in high-frequency trading, high-performance computing, and purpose-built storage systems (NVMe-over-Fabrics). The operational complexity and software ecosystem limitations mean it is not practical for general-purpose distributed systems.
- 
-:::note
-Network bandwidth scaling creates an asymmetric situation in distributed architectures: you can move a lot of data between machines cheaply, but you cannot make any individual coordination operation fast. This is why architectures that batch work (Kafka consumer groups, MapReduce shuffle phases, bulk database replication) perform far better than architectures that require fine-grained per-item coordination across machines.
-:::
- 
-## The Total Cost of Ownership Inflection Point
- 
-The economic argument for horizontal scaling over vertical scaling is not that individual commodity servers are cheaper — they are not, on a pure per-core or per-GB basis. The argument is that the *aggregate* cost of N commodity servers providing equivalent availability and throughput is lower than the cost of a single large server, especially when you include:
- 
-- **HA redundancy cost:** A single large server requires a standby replica of equal size for high availability. Two servers at N/2 capacity each can serve as active-active peers, using capacity that would otherwise be idle. The standby large-server model pays full price for capacity that sits warm and unused.
-- **Overprovisioning cost:** Vertical scaling requires provisioning for peak load plus headroom. Horizontal scaling with auto-scaling provisions for average load and scales to peak, then scales back. The savings on cloud infrastructure can be 30-50% for bursty workloads.
-- **Upgrade disruption cost:** Upgrading a vertical-scaled system requires a maintenance window and typically causes downtime. Adding a node to a horizontal cluster is (ideally) a zero-downtime operation.
-- **Failure recovery cost:** A large-instance failure recovers slowly — crash recovery, buffer pool warming, log replay. Replacing a commodity node in a distributed cluster is typically faster and involves replication catchup rather than a full local recovery.
-```mermaid
-flowchart LR
-    subgraph VerticalHA["Vertical HA -- Active + Standby"]
-        V1["Primary\n192 vCPU, 3TB RAM\n$45/hr"]
-        V2["Standby\n192 vCPU, 3TB RAM\n$45/hr (idle)"]
-        V1 -.->|replication| V2
-        VT["Total: $90/hr\nUtilization: ~50%"]
-    end
-    subgraph HorizontalHA["Horizontal -- 6 Active Nodes"]
-        H1["Node 1\n32 vCPU, 512GB\n$7/hr"]
-        H2["Node 2\n32 vCPU, 512GB\n$7/hr"]
-        H3["...4 more nodes\n$7/hr each"]
-        HT["Total: $42/hr\nUtilization: ~85%"]
-    end
-```
-*Equivalent compute capacity: vertical active+standby pair at $90/hr versus horizontal active cluster at $42/hr — nearly identical total compute, roughly half the cost. Horizontal adds coordination complexity.*
- 
-The inflection point where horizontal becomes economically superior to vertical varies by workload type:
- 
-- **Pure stateless compute (web servers, API workers):** Horizontal wins at almost any scale above a few hundred RPS. There is no reason to pay for a large instance when commodity instances behind a load balancer provide better availability and lower cost simultaneously.
-- **Stateful single-writer systems (relational databases, message brokers):** Vertical scaling remains competitive up to 32-48 cores and 256-512 GB RAM. Beyond this, the NUMA penalties, standby cost, and licensing premiums (for commercial databases priced per-socket) tip the economics toward horizontal.
-- **Read-heavy workloads with replicas:** Adding read replicas is horizontal scaling. A single-primary, multiple-replica PostgreSQL configuration is a hybrid architecture that extracts most of the benefit of horizontal scaling for reads while keeping write-path simplicity.
-## Hardware Limits That Are Not Negotiable
- 
-Some performance constraints cannot be overcome by spending more money on hardware. They are governed by physics.
- 
-**The speed of light:** A signal traveling through fiber optic cable at approximately 2/3 the speed of light in a vacuum takes ~5 ms to travel 1,000 km. A round trip from New York to London is ~70 ms minimum, irreducible regardless of hardware investment. This is why geographically distributed consensus protocols have minimum latency floors that appear in every distributed database's benchmark disclaimers.
- 
-**DRAM random access latency:** As described above, ~60-80 ns for a cache-miss access. This has not meaningfully changed in 25 years and is bounded by fundamental DRAM cell physics — specifically, the time required to charge and discharge a capacitor reliably across process-node scaling.
- 
-**CPU pipeline depth and branch misprediction cost:** Deeper pipelines allow higher clock frequencies but increase the penalty for mispredicted branches. Modern CPUs with 14-20 stage pipelines pay 14-20 cycles on a misprediction — at 3 GHz, that is 5-7 ns flushed. Speculative execution and branch predictors mitigate this, but highly unpredictable code (complex if-chains over uncacheable data) hits these limits regardless of CPU generation.
- 
-**Disk seek time (mechanical):** The ~5 ms average seek time of a spinning disk is bounded by the physical rotational speed of the platter (7200 RPM = 8.3 ms per rotation) and actuator arm mechanics. This physical limit is why HDDs remain unsuitable for latency-sensitive random I/O and will remain so regardless of future improvements in platter density.
- 
-:::danger
-Architectural decisions made under incorrect assumptions about hardware capabilities are the most expensive mistakes in distributed systems. Assuming that memory latency will improve with more RAM, that adding CPUs will speed up sequential operations, or that network round-trip latency can be reduced below ~50 µs with standard software stacks will embed false premises into capacity models, SLO budgets, and system designs that are very difficult to unwind later.
-:::
- 
-## Translating Hardware Limits Into Architectural Constraints
- 
-Each hardware limit directly implies a set of architectural constraints that should be treated as first-class design inputs.
- 
-| Hardware Limit | Architectural Implication |
-|---|---|
-| ~3-5 GHz frequency plateau | Latency-sensitive code must minimize instruction count, not rely on frequency increases. JIT-compiled and interpreted languages pay a real throughput tax. |
-| ~60-80 ns DRAM latency | Cache-miss-heavy access patterns are the dominant performance bottleneck. Data layout matters more than algorithmic complexity for large-scale data. |
-| NUMA bandwidth penalty | Database buffer pools must be NUMA-local. JVM heap sizing that crosses NUMA boundaries degrades performance unpredictably. |
-| ~50-100 µs same-rack RTT | Any operation requiring network coordination cannot achieve sub-100 µs latency. Synchronous fine-grained coordination in hot paths is architecturally unsound. |
-| ~5 ms/1000 km speed-of-light RTT | Active-active cross-region writes with strong consistency are incompatible with single-digit millisecond latency SLOs. |
-| NVMe IOPS ceiling (~1-5M per device) | Per-device IOPS can saturate even NVMe. Designs that funnel all I/O through a single device — whether a single SSD or a single EBS volume — hit this ceiling at scale. |
- 
-See [Cost-Performance Curves and Hardware Limits](/distributed-systems/en/foundations/monoliths-to-distributed/cost-performance-curves/) for the companion analysis of why stateless vs. stateful design directly determines which of these limits you encounter first.
-See [Network Reliability, Bandwidth Limitations, and Topology Changes](/distributed-systems/en/foundations/monoliths-to-distributed/network-reliability/) for how network hardware limits propagate into distributed system reliability constraints.
+*Node-size selection. Unit cost picks the region of the curve; rounding, redundancy, and replacement time pick the point.*
+
+The loop at the bottom is the step most teams skip. The large node that is cheapest on paper is often the one that cannot be replaced within the time the redundancy plan assumes, because its type is scarce or its data takes too long to rebuild. Stepping down a size costs little near the flat bottom of the curve and shortens both.
+
+Choose mid-size nodes by default: they sit near the minimum unit cost, keep rounding waste moderate, and come from the deepest capacity pools. Choose large or whole-host nodes when state must live in one memory space and the [stateful design](/distributed-systems/en/foundations/monoliths-to-distributed/stateful-vs-stateless/) cannot partition it further, when software is licensed per core so that fewer, faster cores are cheaper overall, or when noisy-neighbor variance violates the latency objective. Choose high-frequency, lower-core-count processors for work dominated by a serial section, and high-bandwidth-per-core configurations for memory-bound work. Choose small nodes when fleet size is small enough that rounding dominates, or when per-tenant isolation requires one tenant per node.
+
+Do not use burstable classes for any workload with sustained load above baseline or with a bulk-transfer recovery path. Do not choose the largest size in a family because its unit price per vCPU is the same as smaller sizes; the capacity per vCPU is not. Do not pick dense-core processors for memory-bound workloads on the strength of their core count. Do not size a fleet from peak benchmark throughput; size it from throughput at the latency objective, which also reflects the utilization-latency curve described in [Queueing Theory Foundations](/distributed-systems/en/resilience/flow-control/queueing-theory-littles-law/). Each processor generation moves the curve, so re-benchmark rather than carry a choice forward.
+
+## Further Reading
+
+- Robert H. Dennard, Fritz H. Gaensslen, Hwa-Nien Yu, V. Leo Rideout, Ernest Bassous, and Andre R. LeBlanc, *Design of Ion-Implanted MOSFET's with Very Small Physical Dimensions*, IEEE Journal of Solid-State Circuits, 1974.
+- Wm. A. Wulf and Sally A. McKee, *Hitting the Memory Wall: Implications of the Obvious*, ACM SIGARCH Computer Architecture News, 1995.
+- Hadi Esmaeilzadeh, Emily Blem, Renée St. Amant, Karthikeyan Sankaralingam, and Doug Burger, *Dark Silicon and the End of Multicore Scaling*, ISCA, 2011.
+- John L. Hennessy and David A. Patterson, *A New Golden Age for Computer Architecture*, Communications of the ACM, 2019.
+- Luiz André Barroso, Urs Hölzle, and Parthasarathy Ranganathan, *The Datacenter as a Computer: Designing Warehouse-Scale Machines*, 3rd edition, Morgan & Claypool, 2018.
+- Amazon Web Services, *Amazon EC2 instance network bandwidth*, Amazon EC2 User Guide, https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-network-bandwidth.html
