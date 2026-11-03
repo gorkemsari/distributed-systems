@@ -1,394 +1,267 @@
 ---
-title: "1.1.4. The 8 Fallacies of Distributed Computing"
-description: "A production-grounded analysis of the eight false assumptions engineers make when building distributed systems, covering the precise failure modes each assumption produces and the architectural patterns that correct them."
-lastUpdated: 2026-05-13
-sidebar:
-  order: 4
+title: The 8 Fallacies of Distributed Computing
+description: "The eight assumptions that a local procedure call makes true for free and a network call does not, how each one enters code through defaults and abstractions, the failures it produces, and what each correction costs."
+lastUpdated: 2026-11-03
 ---
 
-Peter Deutsch and James Gosling formalized eight assumptions that engineers new to distributed systems consistently make — assumptions that are true on a single machine and catastrophically false when a network sits between components. Originally articulated at Sun Microsystems in the 1990s, these fallacies are not a historical curiosity. They are the root cause of the majority of production incidents in distributed systems today, because the assumptions they describe are not consciously held beliefs — they are the implicit defaults in most programming languages, frameworks, and mental models inherited from single-machine development.
- 
-Each fallacy is a hypothesis. What follows is the empirical refutation of each, with the failure modes they produce and the engineering responses that handle the reality.
- 
-## Fallacy 1: The Network Is Reliable
- 
-No part of a distributed system is more frequently unreliable than the network, and no assumption causes more production incidents than treating it as if it were.
- 
-Network failures are not exceptional events requiring special code paths. They are a continuous background condition in any system of sufficient scale. The failure modes are diverse:
- 
-- **Packet loss** occurs on any network segment, including "reliable" cloud provider networks. A 0.01% packet loss rate means roughly 1 in 10,000 packets is dropped — catastrophic for streaming protocols that depend on ordering.
-- **Intermittent connectivity** causes partial failures that are harder to handle than total failures: a request that takes 29 seconds to fail is worse than one that fails in 50 ms, because it holds threads, connections, and resources for the entire duration.
-- **Asymmetric partitions** allow traffic to flow in one direction but not the other. A service can send heartbeats successfully while receiving no responses — creating conditions where it believes it is live while the rest of the cluster believes it is dead.
-- **Silent data corruption** on network hardware (NIC bugs, faulty switches, bit flips in transit) causes data to arrive malformed without any indication of the error at the TCP level. Applications that do not validate checksums on data received over the network will silently operate on corrupted data.
+The fallacies of distributed computing are eight assumptions that engineers new to networked systems tend to make, and that eventually fail in production: the network is reliable, latency is zero, bandwidth is infinite, the network is secure, topology does not change, there is one administrator, transport cost is zero, and the network is homogeneous. L. Peter Deutsch assembled seven of them at Sun Microsystems in 1994, building on four that Bill Joy and a colleague had already circulated there as the fallacies of networked computing; James Gosling added the eighth around 1997. The list is not a theory or a protocol. It is a checklist of properties that a function call inside one process provides without anyone asking for them, and that a call across a network silently withdraws.
+
+That framing explains why the fallacies keep reappearing three decades later. Nobody writes code believing the network is perfect; the assumptions enter through abstractions that make a remote call look local: a generated client stub with a local method's signature, an object-relational mapper (ORM) that fetches a related row over the network when a field is read, an HTTP client whose default timeout is infinite, a runtime that caches a DNS answer for the life of the process. Each abstraction is useful because it hides the network, and dangerous for the same reason.
+
+The core trade-off is between transparency and control. Hiding the network makes distributed code as easy to write as local code, but it hides the decisions that govern behavior under failure: how long to wait, whether to retry, how much data to move, whom to trust, and where the callee lives now. Exposing the network forces every call site to make those decisions, which costs development time and makes interfaces coarser. Every correction on this page moves one such decision out of a hidden default and into an explicit, reviewed choice. The detailed treatment of packet loss, bandwidth limits, and topology change belongs to [Network Reliability, Bandwidth Limitations, and Topology Changes](/distributed-systems/en/foundations/monoliths-to-distributed/network-reliability/); this page is about the assumptions themselves and how they turn into defects.
+
+## What a Local Call Guarantees Without Being Asked
+
+Jim Waldo and his colleagues at Sun made the underlying argument in *A Note on Distributed Computing*, also in 1994: local and remote computing differ in latency, memory access, partial failure, and concurrency, and an interface that hides those differences cannot be correct in both settings. A local call has a contract nobody writes down because it never fails: the callee runs exactly once or the process dies with it, the call costs nanoseconds, a large argument is passed as a pointer, nobody in between can read or alter it, the callee's address is fixed at link time, one team owns the whole path, the call costs nothing, and both sides share one memory layout and one version of every type.
+
+A remote call replaces each of those guarantees with a component that can behave independently. Following one request from the caller's code to the callee shows where each fallacy lives.
+
 ```mermaid
 flowchart LR
-    A[Service A] -->|request| Net{Network}
-    Net -->|packet loss| Lost([request lost\nno response])
-    Net -->|timeout| Timeout([partial failure\n29s wait])
-    Net -->|corruption| Corrupt([malformed response\nsilent error])
-    Net -->|success| B[Service B]
-    Net -->|asymmetric partition| AP([A thinks B is alive\nB thinks A is dead])
+    subgraph CH["Caller host"]
+        direction TB
+        C["Caller code"] --> S["Client stub and pool"]
+        S -->|"serialize: fallacies 7, 8"| K["Kernel TCP stack"]
+        K --> NIC["NIC and host limits"]
+    end
+    subgraph NET["Network owned by others"]
+        direction TB
+        SW["Switches and links"] -->|"capacity: fallacy 3"| FW["Firewall or NAT"]
+        FW -->|"other owners: fallacy 6"| LB["Load balancer"]
+    end
+    subgraph SH["Callee host"]
+        direction TB
+        SRV["Server stub"] --> H["Callee code"]
+    end
+    NIC -->|"loss, delay: fallacies 1, 2"| SW
+    LB --> SRV
+    D["DNS and discovery"] -.->|"stale answers: fallacy 5"| S
+    X["Anyone on the path"] -.->|"reads or alters: fallacy 4"| SW
 ```
-*Four failure modes between two services: only one of five outcomes is the happy path.*
- 
-**The engineering response** is to treat every network call as an operation that may fail, time out, or succeed after an arbitrary delay, and to code defensively at every call site:
- 
-```go
-func callDependency(ctx context.Context, client *http.Client, url string) (*Response, error) {
-    // Always propagate context for cancellation
-    req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-    if err != nil {
-        return nil, fmt.Errorf("building request: %w", err)
-    }
- 
-    // Explicit timeout on every outbound call -- never rely on default (infinite)
-    ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-    defer cancel()
- 
-    resp, err := client.Do(req)
-    if err != nil {
-        // Distinguish timeout from other errors for circuit breaker decisions
-        if errors.Is(err, context.DeadlineExceeded) {
-            return nil, fmt.Errorf("dependency timeout after 2s: %w", err)
-        }
-        return nil, fmt.Errorf("dependency call failed: %w", err)
-    }
-    defer resp.Body.Close()
- 
-    if resp.StatusCode >= 500 {
-        return nil, fmt.Errorf("dependency returned %d", resp.StatusCode)
-    }
- 
-    // Read with limit -- never trust network-delivered size
-    body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-    if err != nil {
-        return nil, fmt.Errorf("reading response: %w", err)
-    }
- 
-    return parseResponse(body)
-}
+*The path of one remote call and where each fallacy enters it. A local call has only the first and last boxes.*
+
+Every box between `Caller code` and `Callee code` has its own state, capacity, owner, and failure behavior. The firewall's connection table has an idle timeout set by another team, the load balancer's configuration ships on its own schedule, and DNS returns an answer that was correct when it was cached. The NIC (network interface card) and the hypervisor below it enforce bandwidth and packet-rate allowances, as covered in [Cost-Performance Curves and Hardware Limits](/distributed-systems/en/foundations/monoliths-to-distributed/cost-performance-curves/). None of them reports its state to the caller, which learns about them only through symptoms: a slow call, a reset, a hang. Every fallacy pretends one of these boxes is not there.
+
+### The Third Outcome: Why Partial Failure Changes Everything
+
+The first two fallacies do the most damage because together they remove a property that local code depends on: every call ends, and its outcome is known. A remote call has three outcomes, not two. It can succeed, it can fail with an error the caller receives, or it can end in a state where the caller does not know whether the callee executed the operation.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Sent
+    Sent --> Succeeded: response received
+    Sent --> FailedKnown: error response or connection refused
+    Sent --> Unknown: timeout or reset after send
+    Unknown --> Succeeded: retry, callee deduplicates
+    Unknown --> Duplicated: retry, callee not idempotent
+    Unknown --> Lost: no retry, operation never ran
+    FailedKnown --> Sent: retry is safe
+    Succeeded --> [*]
+    Duplicated --> [*]
+    Lost --> [*]
 ```
- 
-## Fallacy 2: Latency Is Zero
- 
-The assumption that function calls across a network have negligible cost is the single most common cause of unintentional performance degradation in service-oriented architectures.
- 
-A function call on a single machine completes in nanoseconds. A cross-service call over a 10 GbE network in the same datacenter completes in ~100-500 µs under light load. Under load, with queuing, that same call takes 5-50 ms. Across availability zones, 2-10 ms. Across regions, 30-300 ms. These numbers are not negotiable with better hardware; they are governed by the physics of signal propagation and OS network stack overhead.
- 
-The failure mode of this fallacy is **N+1 query problems** in disguise. A service that loads an entity and then makes one network call per related entity to resolve associations is the distributed equivalent of the N+1 SQL anti-pattern. A page that displays 50 user profiles, each requiring a separate lookup call, generates 50 serial or parallel network round trips — 50 × 500 µs = 25 ms minimum in the best case, and much more under any contention.
- 
+*Outcomes of one remote call from the caller's point of view. `Unknown` has no equivalent in a local call.*
+
+A timeout does not mean the request failed; it means the caller stopped waiting. The request may have been lost on the way in, executed with the response lost on the way back, or still be queued in a server that will execute it after the caller gave up. The caller cannot tell these apart, hence one `Unknown` state with three exits. A connection refused before the request was written is a known failure and safe to retry; a reset after it was written is unknown.
+
+The only general way out of `Unknown` without a human is to make retries harmless. If the callee is idempotent, or if it records each request identifier and returns the stored result for a repeated identifier, then retrying until a response arrives turns at-least-once delivery into an exactly-once effect. The network may deliver the request any number of times, but the state changes on the first delivery only and every later one returns the same response. This holds only if the deduplication record outlives the longest window in which the client can retry, and only if the identifier is generated once by the caller rather than per attempt. The mechanics are covered in [Idempotency and Safe HTTP Methods](/distributed-systems/en/communication/api-gateway/idempotency/) and [At-Least-Once, At-Most-Once, and Exactly-Once Semantics](/distributed-systems/en/communication/async-messaging/delivery-semantics/). The formal treatment of a network that can delay messages without bound is in [Network Models](/distributed-systems/en/foundations/system-models/network-models/).
+
+:::caution[A timeout on a write is not a failure]
+Code that catches a timeout from a payment, order, or ledger call and reports "the operation failed" to the user, or retries without an idempotency key, is wrong in both directions: the user may be charged once and told it failed, or charged twice. Treat a timed-out write as `Unknown`, retry it only with the original request identifier, and reconcile against the callee's record when retries are exhausted.
+:::
+
+## The Eight Assumptions and How They Enter Code
+
+The fallacies cluster by which guarantee of the local call they remove, and each cluster has one kind of correction.
+
+### Reliability and Latency
+
+"The network is reliable" enters code wherever a call has no timeout and no plan for the `Unknown` outcome. Many clients default to waiting forever: gRPC, for example, documents that it sets no deadline by default, so an RPC (remote procedure call) waits indefinitely unless the caller sets one. A stalled callee or path holds the caller's thread or connection, and one slow dependency can exhaust a whole pool. The correction is a deadline on every call, set from the caller's latency budget and propagated downstream so that a callee stops work the caller has already abandoned, as discussed in [Timeouts](/distributed-systems/en/resilience/protection-patterns/timeouts/). Bailis and Kingsbury's survey *The Network is Reliable* collects published evidence that partitions, link failures, and device misbehavior occur in every environment, including single data centers.
+
+"Latency is zero" enters through interfaces designed as if calls were free: a loop that calls a remote method per element, a lazy-loaded ORM relation, a service that validates a request by calling three other services in sequence. Latency has a physical floor. Light in optical fiber travels roughly 200,000 km per second, about 5 microseconds per kilometer, so 100 km of fiber adds about one millisecond of round-trip time (RTT) before any switch, queue, or software is involved. Inside one data center an RPC typically costs hundreds of microseconds with serialization, kernel work, and queueing; across continents, tens to hundreds of milliseconds. A chatty interface multiplies that cost by its sequential calls, and a fan-out multiplies the chance of meeting a slow one, the tail effect described by Dean and Barroso and quantified in [The Scaling Dilemma](/distributed-systems/en/foundations/monoliths-to-distributed/scaling-dilemma/).
+
+### Bandwidth and Transport Cost
+
+"Bandwidth is infinite" enters when a design moves whole objects where it needed a few fields, replicates full state where it needed deltas, or runs a backfill over the same links that serve user traffic. Bandwidth is limited per host, per flow, per link, and per provider allowance, and the limit that binds is often not the NIC's rated speed. When a link saturates, packets queue in switch buffers and latency rises before any loss appears, so a bandwidth problem usually presents first as a latency problem. Per-flow limits, incast, and oversubscribed topologies are covered in [Network Reliability, Bandwidth Limitations, and Topology Changes](/distributed-systems/en/foundations/monoliths-to-distributed/network-reliability/).
+
+"Transport cost is zero" has two parts. The first is compute: every call serializes, encrypts, copies through the kernel, decrypts, and deserializes its payload, which in services built around small calls can consume a large share of CPU. The second is money: cloud providers bill transfer between availability zones, between regions, and to the internet, so a call graph laid out without regard to placement has a recurring cost proportional to its bytes. Neither cost appears in a diagram of boxes and arrows. Measuring and allocating them is covered in [Cost Optimization](/distributed-systems/en/deployment/platform-engineering/cost-optimization/).
+
+### Security
+
+"The network is secure" enters wherever a service trusts a request because of where it came from: an internal endpoint without authentication because it is "behind the firewall", plaintext traffic between services because the links are private, an allowlist of IP addresses standing in for identity. Any compromised workload inside the perimeter then has a legitimate one's access, and container platforms reassign IP addresses within seconds, so an address identifies nothing for long. The correction is to authenticate and authorize each call by workload identity and to encrypt in transit, the subject of [mTLS](/distributed-systems/en/service-mesh/network-policies-mtls/mtls/) (mutual Transport Layer Security) and [Never Trust, Always Verify](/distributed-systems/en/security/zero-trust/never-trust-always-verify/).
+
+### Topology and Administration
+
+"Topology doesn't change" enters through anything that resolves an address once and keeps it. In Java, the JDK caches successful DNS lookups for 30 seconds by default, but forever when a security manager is installed, unless the `networkaddress.cache.ttl` security property is set, so a long-running process can keep calling an address decommissioned hours ago. Long-lived HTTP/2 and gRPC connections do the same one layer up: a client connected to three backends keeps using only those three after the service scales to ten. Corrections are short, honored DNS TTLs (time to live), discovery that pushes membership changes as covered in [DNS-Based Discovery](/distributed-systems/en/microservice-patterns/service-discovery/dns-based-discovery/), and a server-side maximum connection age that forces clients to reconnect and rebalance periodically.
+
+"There is one administrator" enters when a design depends on settings that belong to someone else. The firewall's idle timeout, the NAT (network address translation) gateway's connection table, the provider's maintenance window, the platform team's certificate rotation, and another team's security group edits all change a call's behavior without any change in its code. AWS documents, for example, that its NAT gateway times out connections idle for 350 seconds and answers a later packet on such a connection with a TCP reset, so a pool that keeps connections idle longer sees resets after every quiet period. The correction is to discover such limits, configure the application inside them, and treat other teams' configuration as an external dependency with its own change process.
+
+### Homogeneity
+
+"The network is homogeneous" enters when a design assumes every hop, client, and peer behaves alike. At the packet level, the maximum transmission unit (MTU) differs across paths: an overlay network using VXLAN encapsulation adds 50 bytes of headers, so a 1,500-byte packet from a host may not fit inside the overlay. Path MTU discovery depends on ICMP (Internet Control Message Protocol) messages reporting that a packet was too large; when a firewall filters them, small requests succeed while large responses vanish, and connections hang only for certain payloads. At the application level, the peer may run another schema version during a rolling deploy, another TLS library, or another runtime with other defaults. The corrections are explicit wire-format compatibility rules, covered in [Schema Evolution and Schema Registry](/distributed-systems/en/communication/async-messaging/schema-evolution-registry/), and tests against the mix production actually runs.
+
+:::note[The list is not complete]
+The eight fallacies are about the network. Distributed systems make other false assumptions with similar consequences: that clocks on different machines agree ([Physical Clocks](/distributed-systems/en/foundations/time-and-ordering/physical-clocks/)), that a node which stops responding has crashed rather than paused ([Failure Models](/distributed-systems/en/foundations/system-models/failure-models/)), and that a failure detector can distinguish the two ([Heartbeats and Timeout Configuration](/distributed-systems/en/resilience/failure-detection/heartbeats-timeouts/)). Treat the list as a starting point for review, not a complete threat model.
+:::
+
+## Worked Example: Extracting a Catalog Behind an N+1 Loop
+
+Assume a monolith renders an order-details page by loading the order and then, for each of its 40 line items, calling `getProduct(id)` and `getInventory(id)`. In-process, the 81 calls hit a local cache and cost well under a millisecond, so nobody has noticed the loop. The team extracts catalog and inventory into services whose generated stubs keep the same signatures, so the loop survives unchanged. All numbers below are illustrative.
+
+Latency first. If an RPC within one availability zone (AZ) costs 0.5 ms end to end, the 81 sequential calls take 40.5 ms. If the instances are spread across zones and a cross-zone call costs 1.5 ms, the page takes about 122 ms. If a later disaster-recovery change routes the catalog calls to another region 70 ms away, the page takes 81 times 70 ms, about 5.7 seconds. Only the placement changed.
+
+Reliability next. If each call independently succeeds 99.95% of the time, the page succeeds with probability `0.9995^81`, about 96.0%: four page loads in a hundred now fail, although every service meets its 99.95% target. The tail is worse. If each call has a p99 latency of 5 ms, the probability that at least one of the 81 calls lands in its slowest 1% is `1 - 0.99^81`, about 55.7%. More than half of page loads now run at the dependencies' tail, not their median.
+
+```mermaid
+xychart-beta
+    title "Per-request risk vs. number of remote calls (illustrative)"
+    x-axis "Remote calls per request" [1, 5, 10, 20, 40, 81, 160]
+    y-axis "Percent of requests" 0 --> 100
+    line [1.0, 4.9, 9.6, 18.2, 33.1, 55.7, 80.0]
+    line [0.05, 0.25, 0.5, 1.0, 1.98, 3.97, 7.69]
+```
+*Upper line: probability that at least one call is slower than its own p99. Lower line: probability that at least one call fails when each succeeds 99.95% of the time. Calls are assumed independent.*
+
+The upper curve is the one that changes engineering decisions: each dependency's owners defend its p99, but a request making dozens of calls experiences a percentile far worse than any of them reports. Independence is optimistic; calls to one overloaded dependency are correlated, so during incidents the curve rises faster.
+
+Bandwidth and cost last. If each product response is 8 KB of JSON, the page moves 640 KB from the catalog and inventory services. At 500 page loads per second that is 320 MB/s, about 2.6 Gbps, sustained. Over a 30-day month that is roughly 829,000 GB. With instances spread evenly over three zones and calls load-balanced without regard to zone, about two-thirds of calls cross a zone boundary. Assume a transfer price of $0.01 per GB charged on each side of a cross-zone transfer, a rate AWS has long published for most regions (check current pricing): two-thirds of 829,000 GB at $0.02 per GB is about $11,000 per month, for a page that cost nothing to render inside the monolith.
+
+The fix is to change the interface, not the network. A batch method `getProducts(ids)` and its inventory equivalent reduce the page to three calls, and the two batch calls can run in parallel after the order is loaded, so the page needs two sequential round trips: about 1 ms within a zone, about 140 ms even across regions. Success probability rises to `0.9995^3`, about 99.85%. If the batch response also returns only the 1.5 KB of fields the page renders, transfer falls to 120 KB per page and the cross-zone bill to roughly $2,000 per month. Every number improved once the interface stopped assuming latency, bandwidth, and transport were free.
+
+## Design Responses and What They Cost
+
+Each correction has a price, and choosing among them is the real engineering decision.
+
+| Fallacy | Local guarantee that disappears | Typical defect | Response | Cost of the response |
+|---|---|---|---|---|
+| Network is reliable | Call ends with a known outcome | Hangs, lost or duplicated writes | Deadlines, idempotency keys, bounded retries | Every write path needs a deduplication record |
+| Latency is zero | Call costs nanoseconds | Chatty interfaces, sequential fan-out | Coarse-grained and batch APIs, parallel calls | Less reusable interfaces, larger payloads |
+| Bandwidth is infinite | Arguments passed by reference | Saturated links, latency from queueing | Projections, compression, separate bulk paths | More API surface, CPU for compression |
+| Network is secure | No one between caller and callee | Lateral movement after one compromise | mTLS, per-call authorization | Certificate lifecycle, handshake latency |
+| Topology doesn't change | Callee address fixed at link time | Traffic to stale or removed instances | Short TTLs, pushed discovery, connection max age | More reconnects and lookups |
+| One administrator | One owner of the whole path | Behavior changes with no code change | Explicit limits, keepalives inside path timeouts | Cross-team coordination and documentation |
+| Transport cost is zero | Calls are free | CPU and transfer bills grow with traffic | Zone-aware routing, co-location, batching | Uneven load across zones, placement constraints |
+| Network is homogeneous | One memory layout and version | Version skew, MTU black holes | Compatibility rules, contract tests, MTU checks | Slower schema evolution, test matrix |
+
+The interface style a team chooses decides how much of the network it exposes.
+
+| Interface style | Network exposure | Main risk | When to prefer |
+|---|---|---|---|
+| Fine-grained synchronous RPC | Hidden; looks like a local call | N+1 loops, fan-out tails, cascading hangs | Low call counts per request, latency-tolerant internal tools |
+| Coarse or batch synchronous RPC | Visible in the API shape | Larger payloads, wider contracts | User-facing paths with many related lookups |
+| Asynchronous messaging | Explicit; caller does not wait | Ordering, duplicates, eventual consistency | Work that need not complete within the user's request |
+| Local cache or replica of remote data | Removed for reads | Staleness and invalidation | Read-heavy data with tolerable staleness |
+| Merging the services | Removed entirely | Larger deployable, shared release cadence | Services that cannot do useful work without each other |
+
+The last row deserves weight: two services that call each other on nearly every request and cannot deploy independently pay for every fallacy and gain nothing from distribution, the pattern described in [The Distributed Monolith](/distributed-systems/en/microservice-patterns/service-decomposition/distributed-monolith/). Choosing boundaries that keep chatty interactions inside one process is the subject of [Service Granularity](/distributed-systems/en/microservice-patterns/service-decomposition/service-granularity/).
+
+### Defaults That Encode the Fallacies
+
+Many fallacies live in default values that nobody chose. On Linux, a TCP connection with unacknowledged data is abandoned only after `tcp_retries2` retransmissions, and the kernel documentation states that the default of 15 corresponds to a hypothetical timeout of about 924.6 seconds. TCP keepalive, which detects dead peers on idle connections, is off unless the application enables it on the socket, and its default first probe comes after two hours of idleness, far longer than the idle timeout of most firewalls and NAT devices.
+
+```shell
+# Linux defaults on most distributions; inspect before relying on them
+sysctl net.ipv4.tcp_retries2         # 15: data on a dead path waits about 15 min
+sysctl net.ipv4.tcp_keepalive_time   # 7200 s idle before the first keepalive probe
+sysctl net.ipv4.tcp_keepalive_intvl  # 75 s between probes
+sysctl net.ipv4.tcp_keepalive_probes # 9 failed probes before the connection is dropped
+# JDK DNS cache: 30 s by default, forever under a security manager.
+# Set explicitly in $JAVA_HOME/conf/security/java.security:
+#   networkaddress.cache.ttl=30
+```
+
+The point is not to change these values globally but to stop relying on them: a client deadline bounds a call to seconds, pool idle eviction below the shortest middlebox idle timeout prevents stale connections, and keepalives back up long-lived idle connections. With those settings in place the kernel defaults rarely matter; without them, the defaults define the outage.
+
+:::tip[Propagate the deadline, not just the timeout]
+A fixed timeout per hop lets a request that has already exceeded its user-facing budget keep consuming capacity downstream. Pass the remaining deadline with each call so that every service can refuse work whose caller has already given up. gRPC documents automatic deadline propagation as enabled by default in Java and Go and opt-in in C++; for HTTP, it must be carried in a header and honored explicitly.
+:::
+
+## Failure Modes and How They Present
+
+Each failure below is easiest to recognize from its signature.
+
+### Stale Connections Behind a Middlebox
+
+Trigger: pooled connections stay idle longer than the idle timeout of a firewall or NAT device on the path, which evicts their state. Symptoms: the first requests after a quiet period fail or hang, then the service recovers, nightly or after weekends. A device that sends a reset produces immediate `connection reset` errors; one that drops silently produces hangs bounded only by the client's deadline or, without one, by TCP retransmission.
+
 ```mermaid
 sequenceDiagram
-    participant Frontend
-    participant UserService
-    participant ProfileService
- 
-    Frontend->>UserService: GET /feed (50 posts)
-    loop For each post author (50x)
-        UserService->>ProfileService: GET /profile/{userId}
-        ProfileService-->>UserService: profile data (~500us each)
+    autonumber
+    participant A as App thread
+    participant P as Connection pool
+    participant F as Stateful firewall
+    participant B as Backend
+    A->>P: Borrow connection idle for 20 min
+    Note over F: Idle timeout 10 min, state already evicted
+    P->>F: Send request on pooled connection
+    F--xB: No state for flow, packet dropped
+    loop TCP retransmissions with backoff
+        P->>F: Retransmit request
+        F--xB: Dropped again
     end
-    UserService-->>Frontend: assembled feed (~25ms minimum)
- 
-    Note over Frontend,ProfileService: N+1 pattern: 50 serial calls\nReplace with: GET /profiles?ids=1,2,...50 (1 call)
+    rect rgba(200, 60, 60, 0.15)
+    Note over A,P: No request deadline set: thread blocked for minutes
+    A->>A: Pool and worker threads exhausted by other blocked calls
+    end
+    Note over A: Upstream callers time out, health checks fail
 ```
-*The distributed N+1 pattern: 50 serial lookups where a single batched call would suffice.*
- 
-**The engineering response** is to design APIs that support batching, to use asynchronous parallel calls where serial is not required, and to account for network latency in every performance budget:
- 
-```python
-from typing import List
-import asyncio
-import aiohttp
- 
-# Anti-pattern: serial calls
-async def get_profiles_serial(user_ids: List[int]) -> List[dict]:
-    profiles = []
-    async with aiohttp.ClientSession() as session:
-        for uid in user_ids:  # N network round trips
-            async with session.get(f"/profile/{uid}") as resp:
-                profiles.append(await resp.json())
-    return profiles
- 
-# Correct: single batched call, or parallel if batch API unavailable
-async def get_profiles_batched(user_ids: List[int]) -> List[dict]:
-    async with aiohttp.ClientSession() as session:
-        ids_param = ",".join(str(uid) for uid in user_ids)
-        async with session.get(f"/profiles?ids={ids_param}") as resp:
-            return await resp.json()  # 1 network round trip regardless of N
- 
-# When batching is unavailable: parallel with concurrency limit
-async def get_profiles_parallel(user_ids: List[int], max_concurrent: int = 10) -> List[dict]:
-    semaphore = asyncio.Semaphore(max_concurrent)
-    async def fetch_one(uid: int) -> dict:
-        async with semaphore:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"/profile/{uid}") as resp:
-                    return await resp.json()
-    return await asyncio.gather(*[fetch_one(uid) for uid in user_ids])
-```
- 
-## Fallacy 3: Bandwidth Is Infinite
- 
-Bandwidth constraints are subtle because modern networks provide headline throughput numbers that seem more than adequate until they are not. A 10 Gbps network link between two racks sounds unlimited for application traffic — and is, until a bulk data transfer, a log shipper, or a backup job runs concurrently and drives the link to saturation. At saturation, latency for all other traffic on the same link spikes dramatically due to queuing.
- 
-The bandwidth fallacy produces two specific failure modes in microservices architectures.
- 
-**Chatty protocols.** A service that serializes large domain objects on every call — sending the full state of a 10 KB record when only two fields changed — wastes bandwidth and serialization CPU unnecessarily. The failure mode is subtle: the service functions correctly in development where networks are unconstrained, then degrades under production load when many instances are communicating simultaneously.
- 
-**Unbounded response sizes.** An API that returns all records in a collection rather than paginating allows clients to inadvertently request multi-gigabyte responses. A single mis-scoped query returning a full table scan exhausts the calling service's heap and network buffer simultaneously.
- 
-**The engineering response** is to design for network efficiency from the start:
- 
-```protobuf
-// gRPC/Protobuf: binary serialization, wire-efficient field encoding
-// Only send changed fields -- avoid full object serialization for updates
-message UserProfileUpdate {
-    string user_id = 1;                    // always required
-    optional string display_name = 2;      // only set if changed
-    optional string avatar_url = 3;        // only set if changed
-    google.protobuf.Timestamp updated_at = 4;
-    // NOT: full UserProfile object with 40 fields
-}
- 
-// Pagination is mandatory for any collection endpoint
-message ListOrdersRequest {
-    string customer_id = 1;
-    int32 page_size = 2;       // max enforced server-side, e.g. 100
-    string page_token = 3;     // cursor, not offset -- offset is O(N)
-}
-```
- 
-:::caution
-Never return unbounded collections from a service endpoint. A `GET /orders` that returns all orders for a customer is a latent production incident: correct in development with 10 test records, catastrophic when a customer accumulates 50,000 orders over three years. Always enforce server-side pagination limits, regardless of what the client requests.
-:::
- 
-## Fallacy 4: The Network Is Secure
- 
-Security assumptions in distributed systems operate at every layer — transport, identity, authorization, and data integrity — and failures at any layer produce consequences that are qualitatively different from a single-machine security failure, because the attack surface is the entire network fabric.
- 
-The threat model for a distributed system includes:
-- **Eavesdropping** on unencrypted inter-service traffic (relevant inside a VPC; relevant for any shared network infrastructure)
-- **Man-in-the-middle** attacks on services that do not validate TLS certificates or use self-signed certs without pinning
-- **Unauthorized lateral movement** — a compromised service calling internal APIs that assume any caller within the network perimeter is trusted
-- **Replay attacks** on APIs that do not include request timestamps or nonces in signatures
-The specific failure mode of "the network is secure" is the **implicit internal trust boundary**: the assumption that traffic arriving from within a private network or VPC does not need to be authenticated or authorized. This is the central premise that zero-trust architecture explicitly rejects. An internal service that does not require authentication tokens on its API is one lateral movement away from full internal compromise if any perimeter component is breached.
- 
-**The engineering response** includes mutual TLS (mTLS) for service-to-service authentication, signed request payloads for critical operations, and authorization checks that treat identity, not network location, as the trust boundary:
- 
-```yaml
-# Istio PeerAuthentication -- enforce mTLS for all intra-mesh traffic
-apiVersion: security.istio.io/v1beta1
-kind: PeerAuthentication
-metadata:
-  name: default
-  namespace: production
-spec:
-  mtls:
-    mode: STRICT   # PERMISSIVE during migration, STRICT in steady state
- 
----
-# AuthorizationPolicy -- explicit allowlist, deny by default
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: order-service-authz
-  namespace: production
-spec:
-  selector:
-    matchLabels:
-      app: order-service
-  action: ALLOW
-  rules:
-    - from:
-        - source:
-            principals: ["cluster.local/ns/production/sa/api-gateway"]
-            # Only the API gateway may call order-service directly
-      to:
-        - operation:
-            methods: ["GET", "POST"]
-            paths: ["/orders/*"]
-```
- 
-## Fallacy 5: Topology Doesn't Change
- 
-The network topology a service discovers at startup will not be the topology it operates against one hour, one day, or one week later. In a Kubernetes cluster, pod IP addresses change every time a pod restarts. Cluster autoscaling adds and removes nodes. Rolling deployments cycle through IP addresses. Service mesh configurations update in real time. DNS TTLs expire and are refreshed with different addresses.
- 
-The failure mode of treating topology as static is **stale service discovery**: a client that resolves a service's IP at startup and caches it forever will route requests to a dead host when that host is replaced. The failure is delayed and intermittent — the service works until the cached IP becomes stale, then fails in production after running correctly for days or weeks, making it appear like a regression from an unrelated change.
- 
+*A silently dropping firewall and a client without a deadline. Timeout values are illustrative.*
+
+In steps 2 and 3 the connection looks healthy to the client because nothing has told it otherwise. Steps 4 and 5 are TCP retransmitting with exponential backoff, and without an application deadline the thread waits out the whole retransmission budget. Step 6 turns stale connections into an outage, because every request that borrows one blocks a worker. Detection: error or latency spikes correlated with the end of idle periods, `connection reset` counts in client logs, retransmission counters (`netstat -s`, `nstat`), and, on AWS NAT gateways, the `IdleTimeoutCount` CloudWatch metric. Mitigation: request deadlines, pool idle eviction below the shortest idle timeout on the path, and keepalives or application pings on long-lived connections.
+
+### Retry Amplification Under Partial Failure
+
+Trigger: a dependency slows, and every layer of the call graph times out and retries independently. Symptoms: load on the dependency rises as its health falls; three layers each making three attempts send up to 27 attempts per request. Detection: attempts per distinct request, retry counters by layer. Mitigation: retry at one layer, with backoff, jitter, and a retry budget, behind a [circuit breaker](/distributed-systems/en/resilience/protection-patterns/circuit-breaker/). The dynamics are covered in [Retry Storms and Metastable Failures](/distributed-systems/en/resilience/flow-control/retry-storms-metastable-failures/) and [Retry with Exponential Backoff and Jitter](/distributed-systems/en/resilience/protection-patterns/retry-exponential-backoff/).
+
+### Brief Partitions With Long Consequences
+
+A partition of seconds can trigger automation designed for long failures. On October 21, 2018, optical equipment maintenance cut GitHub's US East Coast network hub off from its primary East Coast data center for 43 seconds. In that window, its Orchestrator cluster manager promoted database primaries on the West Coast; when connectivity returned, each site held writes the other lacked, and GitHub ran degraded for 24 hours and 11 minutes while restoring consistency without losing data. The incident is analyzed in [GitHub 2018](/distributed-systems/en/case-studies/famous-outages/github-2018-split-brain/).
+
 ```mermaid
-flowchart LR
-    Client["Service A\n(IP cached at startup)"] -->|request| OldIP["10.0.0.45\n(pod replaced)"]
-    OldIP -->|connection refused| Error[Connection Error]
- 
-    DNS[Kubernetes DNS\nCoreDNS] -->|current record| NewIP["10.0.0.78\n(replacement pod)"]
- 
-    Client2["Service A\n(DNS lookup per request)"] -->|resolve + request| DNS
-    DNS -->|10.0.0.78| Success[Success]
+timeline
+    title GitHub, October 21-22, 2018 (from the public post-incident analysis)
+    Oct 21 2252 UTC : Optical equipment maintenance cuts East Coast hub link
+              : 43 seconds without connectivity
+    During the partition : Orchestrator promotes West Coast primaries
+    After reconnect : Writes now span both coasts, failback unsafe
+                    : Site degraded to protect data
+    Following day : Restore and replication catch-up complete
+                  : 24 hours 11 minutes of degraded service in total
 ```
-*Static IP caching versus dynamic DNS resolution: the cached IP routes to a dead pod while the DNS-resolving client routes correctly.*
- 
-**The engineering response** is to never hardcode IP addresses, to honor DNS TTLs, and to use service mesh or service registry abstractions that decouple logical service identity from physical network location:
- 
-```go
-// WRONG: resolve once at startup, cache forever
-var serviceAddr = net.LookupHost("order-service.production.svc.cluster.local")
- 
-// CORRECT: use an HTTP client with a transport that respects DNS TTLs
-// Go's net/http DefaultTransport already does this via Resolver with caching
-// but explicit configuration for production:
-transport := &http.Transport{
-    DialContext: (&net.Dialer{
-        Timeout:   5 * time.Second,
-        KeepAlive: 30 * time.Second,
-        // Resolver with reduced DNS cache TTL to pick up topology changes faster
-    }).DialContext,
-    MaxIdleConnsPerHost:   100,
-    IdleConnTimeout:       90 * time.Second,
-    TLSHandshakeTimeout:   10 * time.Second,
-    ResponseHeaderTimeout: 10 * time.Second,
-    DisableKeepAlives:     false,
-}
- 
-client := &http.Client{Transport: transport}
-// Each request naturally re-resolves via the OS resolver with TTL expiry
-```
- 
-## Fallacy 6: There Is Only One Administrator
- 
-A single-machine system has a single administrative domain: one team controls the OS, the application, the configuration, and the dependencies. A distributed system deployed across cloud infrastructure, managed Kubernetes, third-party databases, external APIs, CDNs, and SaaS integrations operates under many administrative domains simultaneously — each with its own change cadence, incident response process, and operational decisions that can affect your system without notice.
- 
-This fallacy produces **dependency coupling failures**: a third-party API that changes its authentication scheme, a managed database provider that applies a version upgrade during your peak traffic window, a CDN that modifies caching behavior in a configuration push, or an internal team that deploys a breaking API change without coordination.
- 
-The engineering responses are defensive but necessary:
- 
-- **Versioned API contracts** with explicit deprecation policies on all service interfaces, not just external APIs. Internal breaking changes without versioning are the single most common cause of cross-team incidents in microservices organizations.
-- **Consumer-driven contract testing** (Pact or similar) that validates that provider changes do not break known consumers before the change reaches production.
-- **Graceful degradation** for third-party dependencies: a feature that depends on an external recommendation API should degrade to a static fallback, not return `500` to users.
-- **Dependency inventories** that track which external services each internal service depends on, with explicit SLA tracking for each.
-```mermaid
-flowchart TD
-    YourService["Your Service\n(your control)"]
-    
-    YourService --> Internal["Internal Service\n(another team's control)"]
-    YourService --> ManagedDB["Managed PostgreSQL\n(cloud provider's control)"]
-    YourService --> ExtAPI["External API\n(third party's control)"]
-    YourService --> CDN["CDN\n(vendor's control)"]
-    
-    Internal -->|breaking change without notice| Incident1[Incident]
-    ManagedDB -->|maintenance window at peak| Incident2[Incident]
-    ExtAPI -->|auth scheme change| Incident3[Incident]
-    CDN -->|cache behavior change| Incident4[Incident]
- 
-    style Incident1 fill:#c0392b,color:#fff
-    style Incident2 fill:#c0392b,color:#fff
-    style Incident3 fill:#c0392b,color:#fff
-    style Incident4 fill:#c0392b,color:#fff
-```
-*A service with four external administrative domains: each is an independent source of failure outside your control.*
- 
-## Fallacy 7: Transport Cost Is Zero
- 
-Moving data between components in a distributed system is never free, and the costs are not limited to network bandwidth charges. Transport cost has three dimensions: **time cost** (serialization and deserialization CPU), **money cost** (egress charges, bandwidth utilization), and **complexity cost** (protocol overhead, versioning, schema evolution).
- 
-**Serialization cost** is frequently underestimated. JSON serialization in a high-throughput service running at 100,000 RPS, with an average payload of 2 KB, requires serializing and deserializing 200 MB/s of JSON. On a modern CPU, JSON parsing runs at roughly 200-500 MB/s — meaning JSON processing alone may consume one to two full CPU cores at this throughput. Binary formats (Protocol Buffers, MessagePack, Avro) parse at 1-5 GB/s, delivering 5-10x throughput improvement for the same CPU budget.
- 
-**Egress cost** is an often-overlooked architectural concern. Major cloud providers charge $0.08-$0.09 per GB for outbound data transfer. A service that replicates large objects between regions, or that returns large payloads to clients over the public internet, can generate significant egress bills that dwarf compute costs. A design decision to store data in one region and process it in another — reasonable from a compute perspective — may be economically irrational when egress costs are properly accounted for.
- 
-| Format | Parse speed | Size vs JSON | Versioning |
-|---|---|---|---|
-| JSON | 200-500 MB/s | 1× (baseline) | Human-readable, no schema enforcement |
-| Protocol Buffers | 1-3 GB/s | 0.3-0.5× (significantly smaller) | Field number-based, backward compatible |
-| Apache Avro | 800 MB/s - 1.5 GB/s | 0.4-0.6× | Schema registry required, rich evolution |
-| MessagePack | 500 MB/s - 1 GB/s | 0.5-0.7× | No schema enforcement |
-| FlatBuffers | 3-5 GB/s (zero-copy) | 0.5-1× | Zero deserialization — direct memory access |
- 
-**The engineering response** is to select serialization formats based on actual throughput requirements and operational constraints, not defaults:
- 
-```protobuf
-syntax = "proto3";
-package order.v1;
- 
-// Protocol Buffers: compact binary, schema-enforced, backward compatible
-// Adding fields: use new field numbers, never reuse
-// Removing fields: mark as reserved, never remove number from registry
-message Order {
-    string order_id = 1;
-    string customer_id = 2;
-    repeated OrderLineItem line_items = 3;
-    OrderStatus status = 4;
-    google.protobuf.Timestamp created_at = 5;
-    google.protobuf.Timestamp updated_at = 6;
-    // Field 7 reserved for future payment_method_id
-    reserved 7;
-    reserved "payment_method_id";
-}
- 
-enum OrderStatus {
-    ORDER_STATUS_UNSPECIFIED = 0;  // proto3 requires zero-value default
-    ORDER_STATUS_PENDING = 1;
-    ORDER_STATUS_CONFIRMED = 2;
-    ORDER_STATUS_SHIPPED = 3;
-    ORDER_STATUS_DELIVERED = 4;
-    ORDER_STATUS_CANCELLED = 5;
-}
-```
- 
-## Fallacy 8: The Network Is Homogeneous
- 
-The network connecting distributed system components is not a uniform, transparent medium. It is a heterogeneous collection of hardware (switches, routers, load balancers, firewalls, NAT devices), protocols (IPv4, IPv6, VXLAN overlays, MPLS backbones), and policy enforcement points that each impose their own constraints, limitations, and behaviors — many of which are invisible to applications.
- 
-The practical consequences of heterogeneity:
- 
-**MTU mismatches.** Different network segments have different Maximum Transmission Unit (MTU) sizes. The standard Ethernet MTU is 1,500 bytes. Jumbo frames extend this to 9,000 bytes on networks that support them. VXLAN overlays add 50-54 bytes of encapsulation overhead, reducing the effective MTU available to applications. A packet larger than the path MTU is either fragmented (adding latency and fragmentation reassembly cost) or dropped (causing mysterious connectivity failures that are not retried correctly by all protocol implementations). gRPC connections that send large frames across network segments with VXLAN overlay will silently fail to connect if the MTU is not correctly configured end-to-end.
- 
-**Middlebox interference.** Stateful firewalls, NAT devices, and load balancers maintain connection state tables with idle timeout policies. A TCP connection that is idle for longer than the middlebox's timeout (commonly 60-300 seconds) has its state silently dropped. The next packet on that connection causes a TCP RST from the middlebox — a failure that looks to the application like an unexpected connection reset, not a timeout. This is why database connection pools must configure `keepalive` settings shorter than the shortest middlebox timeout in the path.
- 
-**IPv4 vs. IPv6 dual-stack behavior.** Applications and libraries that handle IPv6 incorrectly — binding only to IPv4, assuming IPv4 address format in string parsing, failing to handle IPv6 address literals in URLs (`http://[::1]:8080/`) — produce failures that are topology-dependent: they work in IPv4-only environments and fail silently or cryptically in dual-stack environments.
- 
-:::tip
-Always configure TCP `keepalive` on database connections and long-lived HTTP/2 connections. The standard recommendation is `keepalive_time = 60s`, `keepalive_interval = 10s`, `keepalive_probes = 6`. This ensures the OS sends keepalive probes every 60 seconds of idle time, detecting dead connections and preventing middlebox state table expiry from silently orphaning connections.
- 
-```go
-import "net"
- 
-dialer := &net.Dialer{
-    KeepAlive: 30 * time.Second, // Send keepalive probes after 30s idle
-    Timeout:   5 * time.Second,
-}
-// All connections created with this dialer will have TCP keepalive enabled
-```
-:::
- 
-**The engineering response** to network heterogeneity is to never assume that a protocol that works in your development environment will behave identically in production, and to validate network behavior across all path segments:
- 
-```shell
-# Discover path MTU to a target -- critical for diagnosing fragmentation issues
-tracepath -n 10.0.0.1
- 
-# Test specific MTU with no-fragment bit set
-ping -M do -s 1400 10.0.0.1   # Linux
-ping -D -s 1400 10.0.0.1      # macOS
- 
-# Check for TCP keepalive on existing connections
-ss -tnp | grep ESTABLISHED
- 
-# Validate that TCP keepalive is actually configured on a socket
-ss -tnop state established | grep timer
-```
- 
-## The Compounding Effect: When Multiple Fallacies Interact
- 
-In production incidents, these fallacies rarely appear in isolation. The most severe outages combine multiple false assumptions simultaneously.
- 
-A representative cascade:
-1. **Topology changes** (Fallacy 5): A Kubernetes rolling deployment cycles pod IPs.
-2. **Network reliability failure** (Fallacy 1): A brief network partition isolates a subset of new pods.
-3. **Zero-latency assumption** (Fallacy 2): Services make synchronous N+1 calls to the newly cycled pods, each waiting for the full timeout.
-4. **Thread pool exhaustion**: Waiting threads consume all available connections to the partitioned pods.
-5. **Infinite bandwidth assumption** (Fallacy 3): Retry storms send amplified traffic to the recovering nodes.
-6. **Single administrator assumption** (Fallacy 6): The Kubernetes upgrade that triggered the deployment was applied by the platform team without coordinating with the application team's high-traffic window.
-The postmortem for this incident will correctly identify each of these as a contributing factor. The prevention is not fixing each fallacy in isolation — it is designing systems that make the correct assumption from the start: **networks fail, have non-zero latency, finite bandwidth, require authentication, change topology, have multiple administrative domains, non-zero transport cost, and non-uniform behavior**. Every component that crosses a network boundary is interacting with an environment governed by these physical and operational realities, and the architecture must reflect them.
- 
-See [Network Reliability, Bandwidth Limitations, and Topology Changes](/distributed-systems/en/foundations/monoliths-to-distributed/network-reliability/) for a deeper analysis of how these properties manifest in specific network failure scenarios.
-See [Failure Models](/distributed-systems/en/foundations/system-models/failure-models/) for the formal taxonomy of how network fallacies translate into crash-stop, omission, and Byzantine failure modes.
+*Event order from GitHub's published analysis; times other than the first are summarized rather than exact.*
+
+The timeline shows the asymmetry the reliability fallacy hides: the network failure was short and self-healing, the recovery manual and long, because a decision right for a long partition was applied to a short one. Failover automation needs a model of how long partitions last and which writes may be in flight, not only a detector that one has begun.
+
+### Control Planes That Share the Data Path
+
+On October 4, 2021, a maintenance command meant to assess Facebook's backbone capacity disconnected all of its data centers, and a bug in the audit tool failed to stop it. DNS servers designed to withdraw their BGP (Border Gateway Protocol) routes when they lost the data centers vanished from the internet while still running, and the recovery tools depended on the same network, so engineers had to work on site. The case is analyzed in [Meta 2021](/distributed-systems/en/case-studies/famous-outages/meta-2021-bgp-dns/): your own administrators change topology too, and the repair path must not depend on the network being repaired.
+
+### Summary of Failure Signatures
+
+| Failure | Fallacies involved | Symptom from outside | Detection signal | Mitigation |
+|---|---|---|---|---|
+| Hanging calls, pool exhaustion | 1, 6 | Threads blocked, no errors logged | Thread dumps, in-flight request gauges | Deadlines on every call, bulkheads |
+| Duplicate or lost writes | 1 | Double charges, missing records | Reconciliation mismatches | Idempotency keys, deduplication store |
+| Tail-dominated latency | 2 | p99 far above every dependency's p99 | Trace span counts per request | Batching, parallel calls, fewer hops |
+| Stale endpoints | 5 | Errors after scaling or deploys | Connections to removed IPs | Short DNS TTLs, connection max age |
+| Idle connection resets | 5, 6 | Errors after quiet periods | Reset counts, NAT idle-timeout metrics | Pool eviction, keepalives |
+| Size-dependent hangs | 8 | Large responses hang, small ones succeed | Packet captures showing retransmitted full-size segments | Correct MTU, allow ICMP fragmentation-needed |
+| Transfer cost growth | 3, 7 | Bill grows faster than traffic | Cross-zone bytes per service | Zone-aware routing, projections |
+
+[Distributed tracing](/distributed-systems/en/observability/logs-metrics-traces/distributed-tracing/) is the single most useful detection tool for the first three rows, because it makes the number and order of remote calls per request visible where the code hides them.
+
+## Using the Fallacies in Design Review
+
+The list works best as a review procedure: for every arrow in a design, ask which of the eight guarantees it assumes. Does the call have a deadline, and what happens on an `Unknown` outcome? How many times is it made per user request, in sequence or in parallel? How many bytes cross which boundary, and who pays? How do the two sides authenticate each other? How does the caller learn that the callee moved? Whose configuration sits on the path? What happens when the two sides run different versions? An arrow without answers is a defect waiting for traffic.
+
+Apply the review whenever a call crosses a process boundary, and above all when an in-process call is moved behind one during decomposition, because that is where local-call assumptions survive unchanged. DNS, discovery, configuration services, and certificate authorities are remote calls too, often on the startup path. Test the answers with [fault injection](/distributed-systems/en/resilience/chaos-engineering/fault-injection/) of latency, loss, and partitions rather than trusting them.
+
+Do not use the fallacies as an argument against distribution; they describe costs to pay deliberately, and the decision itself rests on the grounds in [The Scaling Dilemma](/distributed-systems/en/foundations/monoliths-to-distributed/scaling-dilemma/). Do not apply every correction to every call: a nightly batch job inside one zone needs no zone-aware routing, and a non-critical internal read can live with a timeout and no retry. Do not treat the list as a failure model; it names hazards but not which failures a component must tolerate, the job of [Failure Models](/distributed-systems/en/foundations/system-models/failure-models/). And do not confuse the reliability fallacy with the [CAP Theorem](/distributed-systems/en/data-management/consistency-models/cap-theorem/), a precise statement about which consistency guarantee survives a partition; the fallacy is the broader error of not planning for the partition at all.
+
+## Further Reading
+
+- Jim Waldo, Geoff Wyant, Ann Wollrath, and Samuel Kendall, *A Note on Distributed Computing*, Sun Microsystems Laboratories Technical Report SMLI TR-94-29, 1994.
+- Peter Bailis and Kyle Kingsbury, *The Network is Reliable*, ACM Queue, 2014.
+- Jeffrey Dean and Luiz André Barroso, *The Tail at Scale*, Communications of the ACM, 2013.
+- GitHub, *October 21 post-incident analysis*, GitHub Blog, 2018. https://github.blog/2018/10/30/oct21-post-incident-analysis/
+- Santosh Janardhan, *More details about the October 4 outage*, Engineering at Meta, 2021. https://engineering.fb.com/2021/10/05/networking-traffic/outage-details/
