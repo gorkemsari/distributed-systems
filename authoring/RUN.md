@@ -46,19 +46,32 @@ check them with web search before using them. If a fact cannot be confirmed, omi
 or phrase it as uncertain. Never invent numbers, incidents, config keys, or citations.
 Label every illustrative number as illustrative.
 
-## 5. Write the pages
+## 5. Choose the depth tier, then write the pages
 
-1. Write the complete English page, then the Turkish page, exactly as the instruction
+1. Topic pages only: before writing, outline what the page must contain to satisfy the
+   depth standard (mechanism steps, correctness argument, worked example, real-system
+   variants, failure modes, decision guidance). From that outline, choose the tier as
+   defined in section 2.1 of the instruction: `standard` (3,000-4,500 EN prose words) or
+   `deep` (4,500-7,000). Decide from the content, not from how famous the topic is.
+   Overview pages have no tier.
+2. Write the complete English page, then the Turkish page, exactly as the instruction
    specifies. `lastUpdated` is today's date in `yyyy-mm-dd`, unquoted.
-2. Paths: if a file for the slug exists at `<slug>.mdx` or `<slug>/index.mdx` under
+3. If the finished English page falls outside its tier, re-decide honestly. A page that
+   needs 5,000 words to reach professional depth becomes `deep`; it is never cut down to
+   4,500. A page that reached 5,000 through repetition or framing is trimmed in the order
+   the instruction gives, never by removing mechanism, correctness, the worked example,
+   failure modes, decision guidance, or warning asides. Above 7,000, refocus on the
+   page's own topic and record a split proposal in the log.
+4. Paths: if a file for the slug exists at `<slug>.mdx` or `<slug>/index.mdx` under
    `src/content/docs/{en,tr}/`, overwrite that exact path. Otherwise topics go to
    `<slug>.mdx` and overviews go to `<slug>/index.mdx`.
-3. Remove any `sidebar:` block from the frontmatter; navigation is defined in
+5. Remove any `sidebar:` block from the frontmatter; navigation is defined in
    `astro.config.mjs`.
 
 ## 6. Validate and self-review
 
-1. Run `python3 authoring/check.py <slug> --type <type>` from the repository root.
+1. Run `python3 authoring/check.py <slug> --type <type> --depth <tier>` from the
+   repository root (`--depth` only for topic pages).
 2. Build the site: `pnpm install --frozen-lockfile` (install pnpm with `npm i -g pnpm`
    if it is missing), then `pnpm build`. A failed build is an error, the same as a
    `check.py` error: read the build log, find the page that broke, and fix it.
@@ -69,7 +82,10 @@ Label every illustrative number as illustrative.
    when it points at a real problem (for example a low TR/EN word ratio usually means
    the translation dropped content).
 4. Then review the English page against the pre-delivery self-check and the depth
-   standard in the instruction, and fix what falls short. Check the Turkish page for
+   standard in the instruction, and fix what falls short. For a `deep` page, also run
+   the padding check from section 2.1: every section adds new information, no paragraph
+   restates another, and no adjacent topic is re-explained instead of linked. If it
+   fails, the page is `standard` with filler: remove the filler and re-classify. Check the Turkish page for
    natural phrasing, terminology that matches the sidebar, and nothing omitted.
 5. If after three fix rounds `check.py` or the build still fails, do not commit the pages. Set the
    queue row to `failed` with a one-line reason in `Note`, log it, commit the queue and
@@ -77,13 +93,19 @@ Label every illustrative number as illustrative.
 
 ## 7. Record and push
 
-1. In `authoring/queue.md`, set the row's status to `done` and put
-   `<date>, <EN words> words` in `Note`. Re-run
+1. In `authoring/queue.md`, set the row's status to `done`, set `Depth` to the chosen
+   tier (`standard` or `deep`; `-` for overviews), and put `<date>, <EN words> words`
+   in `Note`. Re-run
    `python3 authoring/build_queue.py astro.config.mjs authoring/queue.md` to refresh
    the progress line (it preserves statuses).
 2. Append one line to `authoring/log.md`:
-   `- <date> <time> <slug>: done, EN <n> words, <diagrams> diagrams` plus any decision
-   worth knowing (an omitted unverifiable fact, a scope choice).
+   `- <date> <time> <slug>: done, <tier>, EN <n> words, <diagrams> diagrams` plus any
+   decision worth knowing (an omitted unverifiable fact, a scope choice).
+   For a `deep` page, add `Deep because:` and one or two sentences naming which parts of
+   the depth standard needed the room (for example: three-phase protocol with separate
+   correctness arguments, four production implementations with different failure
+   behavior). For a page above 6,000 words or one that hit 7,000, add the split proposal
+   or state why the topic cannot be split.
 3. Commit only the two page files, `authoring/queue.md`, and `authoring/log.md`, with
    the message `docs(<slug>): generate EN/TR`.
 4. Push to `content-gen`. If the push is rejected because the branch moved, pull with
