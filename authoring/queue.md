@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 21 / 335 done.
+Progress: 22 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -22,7 +22,7 @@ Progress: 21 / 335 done.
 | 010 | done | topic | standard | `foundations/system-models/deterministic-vs-probabilistic` | Deterministic vs. Probabilistic Failure Models | 2026-11-04, 4047 words |
 | 011 | done | topic | standard | `foundations/system-models/cascading-failure` | Failure Propagation: Cascading Failure Analysis | 2026-11-04, 3957 words |
 | 012 | done | chapter-overview | - | `foundations/system-models` | System Models and Failure Types | 2026-11-04, 1575 words |
-| 013 | todo | topic | - | `foundations/time-and-ordering/physical-clocks` | Physical Clocks: Quartz Drift, NTP Limitations, Leap Second Problem | regenerate: earlier version trimmed to fit the former 4,500 cap |
+| 013 | done | topic | deep | `foundations/time-and-ordering/physical-clocks` | Physical Clocks: Quartz Drift, NTP Limitations, Leap Second Problem | 2026-11-04, 6278 words |
 | 014 | done | topic | standard | `foundations/time-and-ordering/monotonic-vs-time-of-day` | Monotonic Clocks vs. Time-of-Day: Which One to Use | 2026-11-04, 4020 words |
 | 015 | done | topic | standard | `foundations/time-and-ordering/happened-before` | The Happened-Before Relation: Foundation of Causality | 2026-11-04, 4315 words |
 | 016 | todo | topic | - | `foundations/time-and-ordering/lamport-timestamps` | Lamport Timestamps: Capturing Causality | regenerate: earlier version trimmed to fit the former 4,500 cap |
