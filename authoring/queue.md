@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 22 / 335 done.
+Progress: 23 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -25,7 +25,7 @@ Progress: 22 / 335 done.
 | 013 | done | topic | deep | `foundations/time-and-ordering/physical-clocks` | Physical Clocks: Quartz Drift, NTP Limitations, Leap Second Problem | 2026-11-04, 6278 words |
 | 014 | done | topic | standard | `foundations/time-and-ordering/monotonic-vs-time-of-day` | Monotonic Clocks vs. Time-of-Day: Which One to Use | 2026-11-04, 4020 words |
 | 015 | done | topic | standard | `foundations/time-and-ordering/happened-before` | The Happened-Before Relation: Foundation of Causality | 2026-11-04, 4315 words |
-| 016 | todo | topic | - | `foundations/time-and-ordering/lamport-timestamps` | Lamport Timestamps: Capturing Causality | regenerate: earlier version trimmed to fit the former 4,500 cap |
+| 016 | done | topic | deep | `foundations/time-and-ordering/lamport-timestamps` | Lamport Timestamps: Capturing Causality | 2026-11-04, 5544 words |
 | 017 | done | topic | standard | `foundations/time-and-ordering/vector-clocks` | Vector Clocks: Detecting Concurrency | 2026-11-04, 4449 words |
 | 018 | done | topic | standard | `foundations/time-and-ordering/hybrid-logical-clocks` | Hybrid Logical Clocks (HLC): Combining Physical and Logical Time | 2026-11-04, 4398 words |
 | 019 | done | topic | standard | `foundations/time-and-ordering/truetime-spanner` | Google TrueTime & Spanner: Working with Uncertainty | 2026-11-04, 4416 words |
