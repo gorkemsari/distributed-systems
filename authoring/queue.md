@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 23 / 335 done.
+Progress: 24 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -33,7 +33,7 @@ Progress: 23 / 335 done.
 | 021 | done | chapter-overview | - | `foundations/time-and-ordering` | Time and Ordering | 2026-11-04, 1793 words |
 | 022 | done | part-overview | - | `foundations` | Foundations & The Laws of Physics | 2026-11-04, 1687 words |
 | 023 | done | topic | standard | `communication/synchronous-protocols/rest` | REST: Constraints, Resources, and HTTP Contracts | 2026-11-04, 4254 words |
-| 024 | todo | topic | - | `communication/synchronous-protocols/http2-http3-quic` | HTTP/2 and HTTP/3: Multiplexing, HOL Blocking, and QUIC |  |
+| 024 | done | topic | deep | `communication/synchronous-protocols/http2-http3-quic` | HTTP/2 and HTTP/3: Multiplexing, HOL Blocking, and QUIC | 2026-11-04, 5411 words |
 | 025 | todo | topic | - | `communication/synchronous-protocols/grpc-protocol-buffers` | gRPC & Protocol Buffers: High-Performance RPC |  |
 | 026 | todo | topic | - | `communication/synchronous-protocols/grpc-streaming` | gRPC Streaming: Unary, Server-Streaming, Bi-directional |  |
 | 027 | todo | topic | - | `communication/synchronous-protocols/graphql` | GraphQL: Query Language and Federation Architecture |  |
