@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 32 / 335 done.
+Progress: 33 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -42,7 +42,7 @@ Progress: 32 / 335 done.
 | 030 | done | chapter-overview | - | `communication/synchronous-protocols` | Synchronous Communication Protocols | 2026-11-05, 1799 words |
 | 031 | done | topic | deep | `communication/async-messaging/message-queue-vs-event-streaming` | Message Queue vs. Event Streaming: Differences and Use Cases | 2026-11-05, 5009 words |
 | 032 | done | topic | deep | `communication/async-messaging/kafka-architecture` | Kafka Architecture: Topic, Partition, Consumer Group, Offset | 2026-11-05, 5951 words |
-| 033 | todo | topic | - | `communication/async-messaging/pulsar-vs-kafka` | Pulsar vs. Kafka: Architectural Comparison |  |
+| 033 | done | topic | deep | `communication/async-messaging/pulsar-vs-kafka` | Pulsar vs. Kafka: Architectural Comparison | 2026-11-05, 5415 words |
 | 034 | todo | topic | - | `communication/async-messaging/rabbitmq` | RabbitMQ: Exchange Types and Routing |  |
 | 035 | todo | topic | - | `communication/async-messaging/delivery-semantics` | At-Least-Once, At-Most-Once, and Exactly-Once Semantics |  |
 | 036 | todo | topic | - | `communication/async-messaging/asyncapi` | AsyncAPI: Documenting Asynchronous Contracts |  |
