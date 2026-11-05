@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 40 / 335 done.
+Progress: 41 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -50,7 +50,7 @@ Progress: 40 / 335 done.
 | 038 | done | topic | deep | `communication/async-messaging/dlq-poison-messages` | Dead Letter Queues and Poison Message Handling | 2026-11-05, 5672 words |
 | 039 | done | chapter-overview | - | `communication/async-messaging` | Asynchronous Messaging Fundamentals | 2026-11-05, 1790 words |
 | 040 | done | topic | deep | `communication/api-gateway/api-gateway-pattern` | API Gateway Pattern: Single Entry Point, Routing, Auth | 2026-11-05, 5464 words |
-| 041 | todo | topic | - | `communication/api-gateway/bff-pattern` | Backend for Frontend (BFF) Pattern |  |
+| 041 | done | topic | deep | `communication/api-gateway/bff-pattern` | Backend for Frontend (BFF) Pattern | 2026-11-05, 4932 words |
 | 042 | todo | topic | - | `communication/api-gateway/openapi-swagger` | OpenAPI / Swagger: Contract-First Development |  |
 | 043 | todo | topic | - | `communication/api-gateway/contract-testing` | Consumer-Driven Contract Testing (Pact) |  |
 | 044 | todo | topic | - | `communication/api-gateway/idempotency` | Idempotency and Safe HTTP Methods |  |
