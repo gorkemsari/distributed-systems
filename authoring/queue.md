@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 30 / 335 done.
+Progress: 31 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -40,7 +40,7 @@ Progress: 30 / 335 done.
 | 028 | done | topic | deep | `communication/synchronous-protocols/websocket-sse` | WebSocket and Server-Sent Events: Real-Time Communication | 2026-11-04, 6207 words |
 | 029 | done | topic | deep | `communication/synchronous-protocols/api-versioning` | API Versioning Strategies | 2026-11-05, 5165 words |
 | 030 | done | chapter-overview | - | `communication/synchronous-protocols` | Synchronous Communication Protocols | 2026-11-05, 1799 words |
-| 031 | todo | topic | - | `communication/async-messaging/message-queue-vs-event-streaming` | Message Queue vs. Event Streaming: Differences and Use Cases |  |
+| 031 | done | topic | deep | `communication/async-messaging/message-queue-vs-event-streaming` | Message Queue vs. Event Streaming: Differences and Use Cases | 2026-11-05, 5009 words |
 | 032 | todo | topic | - | `communication/async-messaging/kafka-architecture` | Kafka Architecture: Topic, Partition, Consumer Group, Offset |  |
 | 033 | todo | topic | - | `communication/async-messaging/pulsar-vs-kafka` | Pulsar vs. Kafka: Architectural Comparison |  |
 | 034 | todo | topic | - | `communication/async-messaging/rabbitmq` | RabbitMQ: Exchange Types and Routing |  |
