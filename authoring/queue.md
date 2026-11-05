@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 28 / 335 done.
+Progress: 29 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -38,7 +38,7 @@ Progress: 28 / 335 done.
 | 026 | done | topic | deep | `communication/synchronous-protocols/grpc-streaming` | gRPC Streaming: Unary, Server-Streaming, Bi-directional | 2026-11-04, 5773 words |
 | 027 | done | topic | deep | `communication/synchronous-protocols/graphql` | GraphQL: Query Language and Federation Architecture | 2026-11-04, 5485 words |
 | 028 | done | topic | deep | `communication/synchronous-protocols/websocket-sse` | WebSocket and Server-Sent Events: Real-Time Communication | 2026-11-04, 6207 words |
-| 029 | todo | topic | - | `communication/synchronous-protocols/api-versioning` | API Versioning Strategies |  |
+| 029 | done | topic | deep | `communication/synchronous-protocols/api-versioning` | API Versioning Strategies | 2026-11-05, 5165 words |
 | 030 | todo | chapter-overview | - | `communication/synchronous-protocols` | Synchronous Communication Protocols |  |
 | 031 | todo | topic | - | `communication/async-messaging/message-queue-vs-event-streaming` | Message Queue vs. Event Streaming: Differences and Use Cases |  |
 | 032 | todo | topic | - | `communication/async-messaging/kafka-architecture` | Kafka Architecture: Topic, Partition, Consumer Group, Offset |  |
