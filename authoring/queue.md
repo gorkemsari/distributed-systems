@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 42 / 335 done.
+Progress: 43 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -52,7 +52,7 @@ Progress: 42 / 335 done.
 | 040 | done | topic | deep | `communication/api-gateway/api-gateway-pattern` | API Gateway Pattern: Single Entry Point, Routing, Auth | 2026-11-05, 5464 words |
 | 041 | done | topic | deep | `communication/api-gateway/bff-pattern` | Backend for Frontend (BFF) Pattern | 2026-11-05, 4932 words |
 | 042 | done | topic | deep | `communication/api-gateway/openapi-swagger` | OpenAPI / Swagger: Contract-First Development | 2026-11-05, 5165 words |
-| 043 | todo | topic | - | `communication/api-gateway/contract-testing` | Consumer-Driven Contract Testing (Pact) |  |
+| 043 | done | topic | deep | `communication/api-gateway/contract-testing` | Consumer-Driven Contract Testing (Pact) | 2026-11-05, 4939 words |
 | 044 | todo | topic | - | `communication/api-gateway/idempotency` | Idempotency and Safe HTTP Methods |  |
 | 045 | todo | topic | - | `communication/api-gateway/throttling-rate-limiting` | Throttling and Rate Limiting at the Gateway Level |  |
 | 046 | todo | chapter-overview | - | `communication/api-gateway` | API Gateway and Service Contracts |  |
