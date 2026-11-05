@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 37 / 335 done.
+Progress: 38 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -47,7 +47,7 @@ Progress: 37 / 335 done.
 | 035 | done | topic | deep | `communication/async-messaging/delivery-semantics` | At-Least-Once, At-Most-Once, and Exactly-Once Semantics | 2026-11-05, 5539 words |
 | 036 | done | topic | standard | `communication/async-messaging/asyncapi` | AsyncAPI: Documenting Asynchronous Contracts | 2026-11-05, 4494 words |
 | 037 | done | topic | deep | `communication/async-messaging/schema-evolution-registry` | Schema Evolution and Schema Registry: Avro, Protobuf, and Compatibility Modes | 2026-11-05, 5477 words |
-| 038 | todo | topic | - | `communication/async-messaging/dlq-poison-messages` | Dead Letter Queues and Poison Message Handling |  |
+| 038 | done | topic | deep | `communication/async-messaging/dlq-poison-messages` | Dead Letter Queues and Poison Message Handling | 2026-11-05, 5672 words |
 | 039 | todo | chapter-overview | - | `communication/async-messaging` | Asynchronous Messaging Fundamentals |  |
 | 040 | todo | topic | - | `communication/api-gateway/api-gateway-pattern` | API Gateway Pattern: Single Entry Point, Routing, Auth |  |
 | 041 | todo | topic | - | `communication/api-gateway/bff-pattern` | Backend for Frontend (BFF) Pattern |  |
