@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 33 / 335 done.
+Progress: 34 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -43,7 +43,7 @@ Progress: 33 / 335 done.
 | 031 | done | topic | deep | `communication/async-messaging/message-queue-vs-event-streaming` | Message Queue vs. Event Streaming: Differences and Use Cases | 2026-11-05, 5009 words |
 | 032 | done | topic | deep | `communication/async-messaging/kafka-architecture` | Kafka Architecture: Topic, Partition, Consumer Group, Offset | 2026-11-05, 5951 words |
 | 033 | done | topic | deep | `communication/async-messaging/pulsar-vs-kafka` | Pulsar vs. Kafka: Architectural Comparison | 2026-11-05, 5415 words |
-| 034 | todo | topic | - | `communication/async-messaging/rabbitmq` | RabbitMQ: Exchange Types and Routing |  |
+| 034 | done | topic | deep | `communication/async-messaging/rabbitmq` | RabbitMQ: Exchange Types and Routing | 2026-11-05, 5793 words |
 | 035 | todo | topic | - | `communication/async-messaging/delivery-semantics` | At-Least-Once, At-Most-Once, and Exactly-Once Semantics |  |
 | 036 | todo | topic | - | `communication/async-messaging/asyncapi` | AsyncAPI: Documenting Asynchronous Contracts |  |
 | 037 | todo | topic | - | `communication/async-messaging/schema-evolution-registry` | Schema Evolution and Schema Registry: Avro, Protobuf, and Compatibility Modes |  |
