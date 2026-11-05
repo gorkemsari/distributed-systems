@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 45 / 335 done.
+Progress: 46 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -55,7 +55,7 @@ Progress: 45 / 335 done.
 | 043 | done | topic | deep | `communication/api-gateway/contract-testing` | Consumer-Driven Contract Testing (Pact) | 2026-11-05, 4939 words |
 | 044 | done | topic | deep | `communication/api-gateway/idempotency` | Idempotency and Safe HTTP Methods | 2026-11-05, 5984 words |
 | 045 | done | topic | deep | `communication/api-gateway/throttling-rate-limiting` | Throttling and Rate Limiting at the Gateway Level | 2026-11-05, 5415 words |
-| 046 | todo | chapter-overview | - | `communication/api-gateway` | API Gateway and Service Contracts |  |
+| 046 | done | chapter-overview | - | `communication/api-gateway` | API Gateway and Service Contracts | 2026-11-05, 1794 words |
 | 047 | todo | topic | - | `communication/load-balancing/l4-vs-l7` | L4 vs. L7 Load Balancing: Transport vs. Application Layer |  |
 | 048 | todo | topic | - | `communication/load-balancing/algorithms` | Algorithms: Round Robin, Least Connections, Weighted, Consistent Hashing |  |
 | 049 | todo | topic | - | `communication/load-balancing/client-vs-server-side` | Client-Side vs. Server-Side Load Balancing |  |
