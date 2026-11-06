@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 60 / 335 done.
+Progress: 61 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -70,7 +70,7 @@ Progress: 60 / 335 done.
 | 058 | done | topic | deep | `data-management/data-partitioning/dynamic-rebalancing` | Dynamic Rebalancing: Zero-Downtime Strategies | 2026-11-06, 6722 words |
 | 059 | done | topic | deep | `data-management/data-partitioning/colocated-joins` | Colocated Joins: Placing Related Data on the Same Shard | 2026-11-06, 5994 words |
 | 060 | done | topic | deep | `data-management/data-partitioning/secondary-indexes` | Secondary Indexes in Partitioned Data: Local vs. Global | 2026-11-06, 6551 words |
-| 061 | todo | chapter-overview | - | `data-management/data-partitioning` | Data Partitioning / Sharding |  |
+| 061 | done | chapter-overview | - | `data-management/data-partitioning` | Data Partitioning / Sharding | 2026-11-06, 1796 words |
 | 062 | todo | topic | - | `data-management/replication/leader-based-replication` | Leader-Based Replication: Synchronous vs. Asynchronous |  |
 | 063 | todo | topic | - | `data-management/replication/failover-leader-election` | Failover and Leader Election: The Split-Brain Risk |  |
 | 064 | todo | topic | - | `data-management/replication/replication-lag` | Replication Lag Problems: Read-Your-Own-Writes |  |
