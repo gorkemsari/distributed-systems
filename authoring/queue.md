@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 51 / 335 done.
+Progress: 52 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -61,7 +61,7 @@ Progress: 51 / 335 done.
 | 049 | done | topic | deep | `communication/load-balancing/client-vs-server-side` | Client-Side vs. Server-Side Load Balancing | 2026-11-06, 5751 words |
 | 050 | done | topic | deep | `communication/load-balancing/gslb-anycast` | Global Server Load Balancing (GSLB) and Anycast | 2026-11-06, 5993 words |
 | 051 | done | topic | deep | `communication/load-balancing/health-aware-routing` | Health-Aware Routing and Connection Draining | 2026-11-06, 6307 words |
-| 052 | todo | chapter-overview | - | `communication/load-balancing` | Load Balancing |  |
+| 052 | done | chapter-overview | - | `communication/load-balancing` | Load Balancing | 2026-11-06, 1799 words |
 | 053 | todo | part-overview | - | `communication` | Communication Protocols & API Design |  |
 | 054 | todo | topic | - | `data-management/data-partitioning/key-range-partitioning` | Key-Range Partitioning: Advantages and Range Scans |  |
 | 055 | todo | topic | - | `data-management/data-partitioning/hash-partitioning` | Hash Partitioning: Uniform Distribution |  |
