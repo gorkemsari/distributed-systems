@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 58 / 335 done.
+Progress: 59 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -68,7 +68,7 @@ Progress: 58 / 335 done.
 | 056 | done | topic | deep | `data-management/data-partitioning/skew-hot-spots` | Skew and Hot-Spot Problems: Real-World Scenarios | 2026-11-06, 6529 words |
 | 057 | done | topic | deep | `data-management/data-partitioning/consistent-hashing` | Consistent Hashing and Virtual Nodes (vnodes) | 2026-11-06, 5675 words |
 | 058 | done | topic | deep | `data-management/data-partitioning/dynamic-rebalancing` | Dynamic Rebalancing: Zero-Downtime Strategies | 2026-11-06, 6722 words |
-| 059 | todo | topic | - | `data-management/data-partitioning/colocated-joins` | Colocated Joins: Placing Related Data on the Same Shard |  |
+| 059 | done | topic | deep | `data-management/data-partitioning/colocated-joins` | Colocated Joins: Placing Related Data on the Same Shard | 2026-11-06, 5994 words |
 | 060 | todo | topic | - | `data-management/data-partitioning/secondary-indexes` | Secondary Indexes in Partitioned Data: Local vs. Global |  |
 | 061 | todo | chapter-overview | - | `data-management/data-partitioning` | Data Partitioning / Sharding |  |
 | 062 | todo | topic | - | `data-management/replication/leader-based-replication` | Leader-Based Replication: Synchronous vs. Asynchronous |  |
