@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 54 / 335 done.
+Progress: 55 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -64,7 +64,7 @@ Progress: 54 / 335 done.
 | 052 | done | chapter-overview | - | `communication/load-balancing` | Load Balancing | 2026-11-06, 1799 words |
 | 053 | done | part-overview | - | `communication` | Communication Protocols & API Design | 2026-11-06, 1992 words |
 | 054 | done | topic | deep | `data-management/data-partitioning/key-range-partitioning` | Key-Range Partitioning: Advantages and Range Scans | 2026-11-06, 5236 words |
-| 055 | todo | topic | - | `data-management/data-partitioning/hash-partitioning` | Hash Partitioning: Uniform Distribution |  |
+| 055 | done | topic | deep | `data-management/data-partitioning/hash-partitioning` | Hash Partitioning: Uniform Distribution | 2026-11-06, 5397 words |
 | 056 | todo | topic | - | `data-management/data-partitioning/skew-hot-spots` | Skew and Hot-Spot Problems: Real-World Scenarios |  |
 | 057 | todo | topic | - | `data-management/data-partitioning/consistent-hashing` | Consistent Hashing and Virtual Nodes (vnodes) |  |
 | 058 | todo | topic | - | `data-management/data-partitioning/dynamic-rebalancing` | Dynamic Rebalancing: Zero-Downtime Strategies |  |
