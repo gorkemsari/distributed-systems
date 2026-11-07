@@ -1,275 +1,286 @@
 ---
-title: "2.1.2. HTTP/2 and HTTP/3: Multiplexing, HOL Blocking, and QUIC"
-description: "Binary framing, stream multiplexing, flow control and HPACK in HTTP/2; how TCP head-of-line blocking survives into HTTP/2 and how QUIC eliminates it in HTTP/3, with the operational costs of moving transport into userspace."
-lastUpdated: 2026-08-01
-sidebar:
-  order: 2
+title: "HTTP/2 and HTTP/3: Multiplexing, HOL Blocking, and QUIC"
+description: "How HTTP/2 multiplexes streams over one TCP connection with framing, flow control and HPACK, why TCP head-of-line blocking survives that design, how HTTP/3 over QUIC removes it, and what each version costs in CPU, load balancing, security exposure and operability."
+lastUpdated: 2026-11-04
 ---
 
-HTTP/2 solved application-layer head-of-line blocking and moved the problem down a layer; HTTP/3 solved it at the transport layer and paid for it with CPU, middlebox hostility, and a congestion controller you now operate yourself. Neither upgrade is free, and the failure modes each introduces are invisible in a lab with 0% packet loss — which is exactly why they surface first in mobile networks and cross-region traffic.
- 
-**HOL blocking** (head-of-line blocking) is the general condition where a delayed item at the front of an ordered queue stalls every item behind it, even when those items are independently processable. It exists at three distinct layers, and each protocol version addresses a different one.
- 
-| Layer | Mechanism | HTTP/1.1 | HTTP/2 | HTTP/3 |
-|-------|-----------|----------|--------|--------|
-| Application (request) | One in-flight request per connection | Blocked | Solved by stream multiplexing | Solved |
-| Transport (byte stream) | TCP guarantees in-order delivery to the socket | Partially masked by 6 parallel connections | **Blocked**: one lost segment stalls all streams | Solved by per-stream QUIC delivery |
-| Compression state | Header table must be applied in order | N/A (no compression) | HPACK requires ordered processing | QPACK, with explicit blocked-stream limit |
- 
-## What HTTP/1.1 Actually Costs
- 
-HTTP/1.1 permits exactly one outstanding request per connection. Pipelining was specified but is effectively dead: intermediaries mishandled it, and responses had to return in request order, which reintroduced HOL blocking anyway. Browsers compensated with roughly six connections per origin, and API clients compensated with connection pools.
- 
-The costs are concrete:
- 
-- **Handshake amplification.** Six connections means six TCP handshakes and six TLS handshakes on a cold start. At 80 ms RTT, TCP plus TLS 1.3 is 2 RTTs before the first byte of a request leaves the client.
-- **Congestion window fragmentation.** Each connection maintains its own `cwnd` and slow-starts independently. Ten short-lived connections never leave slow start, so the aggregate throughput is far below what one warmed connection would achieve.
-- **Header redundancy.** Every request repeats the full `Authorization`, `User-Agent`, `Cookie`, and trace headers as plaintext. For a stateless REST API (see [REST: Constraints, Resources, and HTTP Contracts](/distributed-systems/en/communication/synchronous-protocols/rest/)), header bytes routinely exceed body bytes on small requests.
-- **Domain sharding** was the standard workaround: split assets across `static1`, `static2`, and so on to get more parallel connections. Under HTTP/2 this becomes actively harmful, since it re-fragments what should be a single multiplexed connection.
-## HTTP/2: Binary Framing and Streams
- 
-HTTP/2 replaces the text protocol with a binary framing layer. One TCP connection carries many **streams**; each stream is a bidirectional sequence of **frames** tagged with a 31-bit stream ID (client-initiated odd, server-initiated even). Frame types that matter operationally: `HEADERS`, `DATA`, `SETTINGS`, `WINDOW_UPDATE`, `RST_STREAM`, `GOAWAY`, `PING`.
- 
+HTTP/2 (RFC 9113) and HTTP/3 (RFC 9114) carry exactly the same HTTP semantics as HTTP/1.1: the same methods, status codes, headers and caching rules described in [REST: Constraints, Resources, and HTTP Contracts](/distributed-systems/en/communication/synchronous-protocols/rest/). What they change is how messages are laid out on the wire. HTTP/2 cuts every request and response into binary frames tagged with a stream identifier and interleaves many streams over a single TCP connection. HTTP/3 does the same over QUIC (RFC 9000), a transport that runs on UDP and implements reliability, ordering and congestion control per stream inside the application process instead of the kernel.
+
+The problem both solve is head-of-line (HOL) blocking: an item at the front of an ordered queue that cannot proceed stalls every item behind it, even items that do not depend on it. HTTP/1.1 allows one outstanding response per connection, so a slow response blocks the connection, and clients compensate by opening several connections per origin, each paying its own handshake, its own slow start and its own share of server memory. HTTP/2 removes HOL blocking at the HTTP layer but keeps all streams in one TCP byte stream, so a single lost packet still stalls every stream until it is retransmitted. HTTP/3 removes that last layer by giving each stream independent delivery.
+
+The core trade-off is shared fate against cost. Putting every request on one connection makes connections cheap, header compression effective and congestion control coherent, but it also means one loss, one flow-control window, one load-balancer decision and one abusive client affect everything on that connection. QUIC breaks the transport-level coupling and adds a faster handshake and connection migration, and pays for it with roughly twice the server CPU of TCP with TLS in Google's published deployment, UDP paths that some networks block or throttle, and a congestion controller and loss detector that now ship in your binary instead of the kernel. Inside a data center, where loss is rare and round trips are short, HTTP/2 is usually the right answer; on lossy, high-latency or mobile paths, HTTP/3 earns its cost.
+
 ```mermaid
-flowchart TD
-    subgraph Conn["Single TCP + TLS connection"]
-        S1["Stream 1: HEADERS + DATA"]
-        S3["Stream 3: HEADERS + DATA"]
-        S5["Stream 5: HEADERS"]
+flowchart TB
+    subgraph H3["HTTP/3"]
+        A3["HTTP semantics"] --> B3["HTTP/3 frames, QPACK"]
+        B3 --> C3["QUIC: streams, loss recovery, TLS 1.3"]
+        C3 --> D3["UDP"]
     end
-    Conn --> Frames["Interleaved frame sequence on the wire"]
-    Frames --> TCP["TCP byte stream: strictly ordered"]
-    TCP -->|"one lost segment"| Stall["All three streams stall until retransmit"]
+    subgraph H2["HTTP/2"]
+        A2["HTTP semantics"] --> B2["HTTP/2 frames, HPACK, streams"]
+        B2 --> C2["TLS"]
+        C2 --> D2["TCP: one ordered byte stream"]
+    end
+    subgraph H1["HTTP/1.1"]
+        A1["HTTP semantics"] --> B1["Text messages, one at a time"]
+        B1 --> C1["TLS"]
+        C1 --> D1["TCP"]
+    end
 ```
-*HTTP/2 interleaves streams above TCP, so a single lost segment blocks streams whose bytes already arrived.*
- 
-Protocol selection happens in the TLS handshake via **ALPN** (Application-Layer Protocol Negotiation). Cleartext HTTP/2 (`h2c`) requires prior knowledge or an Upgrade dance and is essentially only used inside a mesh where TLS is terminated by a sidecar.
- 
-### Flow Control Is Two-Level and Silently Throttling You
- 
-HTTP/2 implements credit-based flow control at both the connection and stream level. A receiver advertises a window; a sender may not transmit more `DATA` octets than the window permits until a `WINDOW_UPDATE` replenishes it. The default initial window is 65,535 bytes per stream and per connection.
- 
-That default is the single most common cause of "HTTP/2 is slower than HTTP/1.1" reports. With a 100 ms RTT, 64 KB per RTT caps a single stream at roughly 5 Mbps regardless of available bandwidth — a classic bandwidth-delay product limit. Large downloads or gRPC streams across regions require raising `SETTINGS_INITIAL_WINDOW_SIZE` and the connection window to the BDP (bandwidth times RTT), often 8–16 MB for high-throughput intercontinental links.
- 
-:::tip
-Compute the target window explicitly rather than guessing: for 200 Mbps at 150 ms RTT the BDP is 200e6 / 8 * 0.150 = 3.75 MB. Set both the stream and connection windows above that, and confirm the peer's advertised `SETTINGS_MAX_CONCURRENT_STREAMS` is high enough that your client is not queueing streams locally instead of sending them.
+*Protocol stacks of the three versions. The HTTP semantics layer is identical; what moves is where multiplexing, ordering and encryption live.*
+
+The diagram shows where each version puts the unit of ordering. In HTTP/1.1 the ordered unit is the whole connection, so multiplexing requires several connections. In HTTP/2 multiplexing moves up into the HTTP framing layer, but ordering stays in TCP below it, and TCP knows nothing about streams. In HTTP/3 the stream abstraction moves down into the transport, and encryption moves into the transport too: QUIC integrates the TLS 1.3 handshake and encrypts almost all of its own headers, which is why middleboxes cannot inspect or rewrite QUIC the way they rewrite TCP.
+
+## HTTP/2: Frames, Streams, and Flow Control on One Connection
+
+An HTTP/2 connection starts with a fixed 24-octet client preface, followed by a SETTINGS frame from each side that declares limits: how many concurrent streams the peer may open, the initial flow-control window, the maximum frame size, the size of the header compression table. Over TLS the version is chosen during the handshake through Application-Layer Protocol Negotiation (ALPN) with the token `h2`; clear-text HTTP/2 (`h2c`) is used mostly inside data centers, with the client assuming support ("prior knowledge").
+
+### Framing and Stream Multiplexing
+
+Everything after the preface is a frame. Every frame begins with the same nine-octet header, and that header is what makes interleaving possible: the receiver reads the length, knows exactly where the frame ends, and uses the stream identifier to hand the payload to the right request.
+
+```mermaid
+packet-beta
+title HTTP/2 frame header (9 octets) followed by payload
+0-23: "Length (24 bits)"
+24-31: "Type (8)"
+32-39: "Flags (8)"
+40-40: "R"
+41-71: "Stream Identifier (31 bits)"
+72-95: "Payload (Length octets) ..."
+```
+*The HTTP/2 frame header. Stream 0 is reserved for connection-level frames such as SETTINGS, PING and GOAWAY.*
+
+The frame types that matter operationally are few. HEADERS opens a stream and carries the compressed request or response header block; CONTINUATION carries the rest of a header block that did not fit in one frame; DATA carries body bytes; RST_STREAM cancels one stream without touching the others; WINDOW_UPDATE grants flow-control credit; PING measures round-trip time and keeps idle connections alive; GOAWAY tells the peer that the connection is being shut down. Client-initiated streams use odd identifiers and server-initiated streams use even ones, and identifiers only increase, so a stream number is never reused on a connection. When a client exhausts the 31-bit space it must open a new connection.
+
+Correctness of the multiplexing rests on two rules. First, a frame belongs entirely to one stream, so a receiver can interleave DATA frames of different streams at frame boundaries without any ambiguity about which bytes belong to which response. Second, the header block of a stream must arrive as one contiguous sequence of HEADERS and CONTINUATION frames with nothing interleaved. The reason is header compression: decoding a header block changes the shared compression state, so the decoder must process header blocks one at a time and in order. That second rule is a deliberate HOL point inside HTTP/2, and the CONTINUATION flood attack described below exploits it.
+
+Each stream moves through a small state machine. It is idle until a HEADERS frame opens it, open while both sides may send, half-closed once one side sets the END_STREAM flag, and closed when both have, or as soon as either side sends RST_STREAM. The advertised `SETTINGS_MAX_CONCURRENT_STREAMS` limit counts only streams that are open or half-closed. The RFC recommends that this value be no smaller than 100, and common servers advertise values in the low hundreds; nginx's `http2_max_concurrent_streams` defaults to 128, Go's `net/http` server to 250. A reset stream stops counting immediately, which is the property Rapid Reset abused.
+
+### Flow Control: Why HTTP/2 Has Windows on Top of TCP's
+
+TCP already has flow control, but it is one window for the whole connection. If one stream's consumer stops reading, for example a proxy whose upstream is slow, TCP's window cannot express "stop sending stream 7 but keep sending stream 9": either the receiver buffers stream 7 without limit or it stops reading the socket and stalls every stream. HTTP/2 therefore adds credit-based flow control at two levels. Each stream and the connection as a whole have a send window; DATA frames consume it, and the receiver returns credit with WINDOW_UPDATE frames as its application consumes data. A sender may transmit only while both the stream window and the connection window are positive. Only DATA frames are flow-controlled; control frames and headers are not, so a stalled window never blocks the frames needed to unblock it.
+
+Both windows start at 65,535 octets. The stream window can be raised with `SETTINGS_INITIAL_WINDOW_SIZE`, but the connection window can only be raised by sending WINDOW_UPDATE on stream 0, and the maximum window is `2^31 - 1` octets. The defaults are small, and a window is a cap on throughput per round trip: a stream can move at most one window per RTT. With the default 64 KiB window, one stream is limited to about 10.5 Mbit/s on a 50 ms path regardless of link speed, and to about 260 Mbit/s on a 2 ms intra-region path. A proxy that keeps defaults on its upstream side turns a fast backend into a slow upload, and the symptom looks like a bandwidth problem rather than a configuration one. Most production servers and proxies auto-tune or raise windows; the right size is the bandwidth-delay product of the slowest path you serve, bounded by how much memory per stream you can afford to buffer.
+
+### HPACK, Priorities, and Push
+
+HTTP headers are repetitive: the same cookie, user agent, authority and authorization token on every request. HPACK (RFC 7541) compresses them with a static table of 61 common header fields, a per-connection dynamic table of recently sent fields (4,096 octets by default), and a Huffman code for literal strings. A repeated header costs one or two bytes after the first request. HPACK deliberately avoids general-purpose compression such as DEFLATE, which SPDY used, because the CRIME attack showed that an attacker who can inject text into a compressed stream can recover secrets like cookies by observing compressed length. The price of the dynamic table is that encoder and decoder must apply updates in exactly the same order, which is the ordering requirement described above.
+
+Prioritization is the part of HTTP/2 that did not work as designed. RFC 7540 defined a dependency tree with weights, and few servers implemented it consistently; RFC 9113 deprecated it, and RFC 9218 replaced it with a simpler scheme: a `priority` header with an urgency from 0 to 7 and an incremental flag, usable by both HTTP/2 and HTTP/3. Server push, where the server sends responses the client has not asked for yet, fared worse. Measured usage was around 1% of HTTP/2 sites, pushed resources often duplicated what the browser already had cached, and Chrome disabled push by default in version 106 in 2022, recommending the `103 Early Hints` status and preload instead. Treat push as obsolete.
+
+### Connection Shutdown and Retry Safety
+
+GOAWAY carries the identifier of the last stream the sender has processed or might still process. Every stream with a higher identifier is guaranteed not to have been acted on, so the client can retry it on a new connection even if the request was a non-idempotent `POST`. Similarly, RST_STREAM with the error code `REFUSED_STREAM` guarantees that the stream was not processed. HTTP/1.1 has no equivalent: when a server closes a keep-alive connection at the moment a request is in flight, the client cannot tell whether the request was executed, which is the keep-alive race described on the REST page. Graceful shutdown in HTTP/2 is therefore a two-step exchange: the server first sends GOAWAY with the maximum stream identifier to stop new streams, waits at least one round trip for streams already in flight, then sends a final GOAWAY with the true last identifier and closes.
+
+:::tip[Use GOAWAY's last-stream-id to decide what is safe to retry]
+A client or proxy that receives GOAWAY should retry only streams above the advertised last-stream-id automatically; streams at or below it may have executed and need the normal idempotency rules from [Idempotency and Safe HTTP Methods](/distributed-systems/en/communication/api-gateway/idempotency/). Servers that close connections during deploys without sending GOAWAY first throw away this guarantee and turn every in-flight request into an ambiguous failure. The same applies to `MAX_CONNECTION_AGE`-style recycling in gRPC servers: it is safe only because it goes through GOAWAY.
 :::
- 
-### HPACK: Compression With Shared Mutable State
- 
-**HPACK** compresses headers using a static table of 61 common entries, a per-connection dynamic table of previously seen name-value pairs, and Huffman coding for literals. A repeated `authorization: Bearer ...` collapses to a one-byte index reference after the first request.
- 
-The consequence is stateful ordering: the dynamic table is mutated by each `HEADERS` frame and must be applied in transmission order, which is why HPACK is itself a source of HOL blocking. It is also an attack surface. Mark headers carrying secrets as never-indexed so they are not stored in the dynamic table, and bound `SETTINGS_HEADER_TABLE_SIZE` — an unbounded table plus adversarial header sets is a memory-exhaustion vector.
- 
-### Stream Concurrency, Cancellation, and Rapid Reset
- 
-`SETTINGS_MAX_CONCURRENT_STREAMS` bounds in-flight streams. Servers commonly default to 100–250; too low serializes clients, too high converts one connection into an unbounded work queue.
- 
-`RST_STREAM` cancels a single stream without tearing down the connection. This is what made **CVE-2023-44487 (HTTP/2 Rapid Reset)** possible: a client opens a stream and immediately resets it, freeing the concurrency slot on the client's accounting while the server has already dispatched backend work. Requests-per-second at the origin becomes decoupled from the concurrency limit, and a single connection can drive hundreds of thousands of RPS. The mitigation is to count resets — track the reset-to-request ratio per connection and send `GOAWAY` with `ENHANCE_YOUR_CALM` past a threshold — and to enforce request admission independently of stream accounting (see [Load Shedding](/distributed-systems/en/resilience/flow-control/load-shedding/)).
- 
-`GOAWAY` is the graceful-shutdown primitive: it carries the last stream ID the server will process, letting in-flight streams complete while new ones are refused. A server that closes the TCP connection without `GOAWAY` produces spurious client-side errors on every deploy. Two-phase `GOAWAY` — an initial one with stream ID 2^31-1 as a warning, then a final one after a drain interval — avoids the race where a client's in-flight stream arrives after the last-stream-ID snapshot.
- 
-:::caution
-HTTP/2's single connection interacts badly with L4 load balancing. A connection is pinned to one backend for its lifetime, so long-lived client connections produce persistent load imbalance that no amount of L4 hashing fixes; a scaled-out backend receives zero traffic until clients reconnect. Fixes: terminate HTTP/2 at an L7 proxy that balances per stream, set a `max_connection_age` with jitter so clients periodically re-resolve, or use client-side balancing over multiple subchannels. See [L4 vs. L7 Load Balancing](/distributed-systems/en/communication/load-balancing/l4-vs-l7/).
-:::
- 
-Server Push (`PUSH_PROMISE`) is a dead feature — browsers removed support because push either duplicated cached resources or arrived too late. Use `103 Early Hints` with `Link: rel=preload` instead: the client decides what it needs, so nothing is wasted.
- 
-## HTTP/3 and QUIC: Moving the Transport Into Userspace
- 
-**QUIC** is a transport protocol over UDP that provides encrypted, multiplexed, reliable streams. HTTP/3 is the HTTP semantics mapping onto QUIC. The essential change: streams are a transport-level concept, so loss on one stream does not delay delivery of another. QUIC packets carry frames belonging to any stream; a lost packet only stalls the streams whose bytes it contained.
- 
-TLS 1.3 is integrated rather than layered: the crypto handshake runs inside QUIC frames, giving 1-RTT connection establishment (versus TCP+TLS 1.3 at 2 RTTs) and 0-RTT on resumption.
- 
+
+## Where TCP Head-of-Line Blocking Survives
+
+TCP delivers bytes to the application strictly in order. When a segment is lost, the receiving kernel holds every later segment in its buffer until the retransmission fills the gap, even though those later segments are intact and belong to streams that have nothing to do with the lost one. HTTP/2 multiplexes streams inside that byte stream, so the HTTP/2 layer cannot read stream 5's complete frames while stream 3's segment is missing. The stall lasts at least one round trip with fast retransmit and much longer if the loss triggers a retransmission timeout; the mechanics of both recovery paths are covered in [Network Reliability, Bandwidth Limitations, and Topology Changes](/distributed-systems/en/foundations/monoliths-to-distributed/network-reliability/).
+
 ```mermaid
 sequenceDiagram
+    autonumber
+    participant S as Server
+    participant K as Client kernel (TCP)
+    participant A as Client HTTP/2 layer
+    S->>K: seg 1: stream 3, DATA part 1
+    S--xK: seg 2: stream 3, DATA part 2 (lost)
+    S->>K: seg 3: stream 5, DATA complete
+    S->>K: seg 4: stream 7, DATA complete
+    K->>A: deliver seg 1 only
+    Note over K,A: segs 3-4 held in kernel buffer, gap at seg 2
+    K->>S: duplicate ACKs for seg 1
+    S->>K: retransmit seg 2 (about 1 RTT later)
+    K->>A: deliver segs 2, 3, 4 at once
+    Note over A: streams 5 and 7 delayed by the loss on stream 3
+```
+*TCP head-of-line blocking under HTTP/2. The kernel holds complete frames for streams 5 and 7 because an earlier segment of stream 3 is missing.*
+
+Steps 3 and 4 are the whole problem: two complete responses sit in the client kernel for a full recovery period, and the HTTP/2 layer cannot see them. In QUIC the same scenario plays out differently. Each QUIC packet carries frames tagged with stream identifiers and offsets, and the QUIC library reassembles each stream separately, so the packets carrying streams 5 and 7 are delivered to their streams at once and only stream 3 waits for its retransmission. What QUIC does not remove is the shared congestion controller: a loss still reduces the sending rate of the whole connection, so QUIC fixes delivery HOL blocking, not the throughput penalty of loss.
+
+### Worked Example: Loss on a Multiplexed Connection
+
+Assume a client receives 1,000 small responses per second from one origin, each response fitting in one packet, over a path with a 40 ms round trip. Assume losses are independent, every loss is repaired by fast retransmit in about one RTT, and there are no retransmission timeouts. All numbers are illustrative.
+
+With HTTP/2 on one connection, each loss blocks every response that arrives behind it during the next RTT, about `1,000 * 0.040 = 40` packets. A response is delayed if any of the roughly 40 packets ahead of it in its window was lost, so the fraction of delayed responses is `1 - (1 - p)^40`. At 0.5% loss this is 18.2%: nearly one response in five pays an extra 40 ms or more, although only one in 200 packets was lost.
+
+With HTTP/1.1 and a pool of 10 connections, each connection carries 100 responses per second, so a loss blocks about 4 packets: `1 - (1 - p)^4`, or 2.0% at 0.5% loss. HTTP/1.1 suffers its own HOL blocking (a slow response blocks its connection), but on a lossy path its separate byte streams contain the damage. With HTTP/3, only the response whose own packet was lost waits: 0.5%.
+
+```mermaid
+xychart-beta
+    title "Responses delayed by a loss, 1,000 resp/s, 40 ms RTT (illustrative)"
+    x-axis "Packet loss rate (%)" [0.1, 0.2, 0.5, 1, 2]
+    y-axis "Delayed responses (%)" 0 --> 60
+    line [3.9, 7.7, 18.2, 33.1, 55.4]
+    line [0.4, 0.8, 2.0, 3.9, 7.8]
+    line [0.1, 0.2, 0.5, 1, 2]
+```
+*Top: HTTP/2 on one TCP connection. Middle: HTTP/1.1 spread over 10 TCP connections. Bottom: HTTP/3, where only the stream that lost a packet waits.*
+
+The curves explain two observations that seem to contradict each other. Inside a data center, where loss is typically far below 0.1% and the RTT is a fraction of a millisecond, the stall window holds almost no packets and HTTP/2's single connection is strictly better than a pool. On a mobile network with 1% loss and 100 ms RTT, HTTP/2 can deliver a worse tail than HTTP/1.1 with six connections, which is the regime QUIC was designed for. The model is conservative on one side and generous on the other: real losses cluster, which reduces the number of distinct stall windows, but a lost tail segment that triggers a retransmission timeout stalls the connection for hundreds of milliseconds instead of one RTT.
+
+## HTTP/3 and QUIC: Moving Reliability Above UDP
+
+QUIC is a general-purpose, connection-oriented, encrypted transport implemented in user space on top of UDP. UDP provides only port numbers and a checksum; everything else, including handshake, reliability, flow control, congestion control and stream multiplexing, is QUIC's job. Running in user space was a design choice, not an accident: TCP changes take years to reach every kernel and middlebox, while a QUIC library ships with the application and can be updated weekly.
+
+### Streams, Packet Numbers, and Loss Recovery
+
+A QUIC connection carries any number of streams, each identified by a 62-bit integer whose two low bits encode who opened it and whether it is bidirectional or unidirectional. Stream data travels in STREAM frames that carry an offset, so the receiver can place bytes of each stream independently. Packets carry frames from several streams, and a packet number that is never reused, even for retransmissions: lost frames are re-sent in a new packet with a new number. This removes TCP's retransmission ambiguity, where the sender cannot tell whether an ACK refers to the original segment or its retransmission, and it gives QUIC cleaner RTT samples than TCP. ACK frames report multiple ranges of received packet numbers and the delay the receiver added before acknowledging.
+
+Loss detection (RFC 9002) declares a packet lost when a packet sent at least three packet numbers later has been acknowledged, or when it was sent more than nine eighths of an RTT (the larger of the smoothed and latest samples) before a packet that has been acknowledged. When nothing is acknowledged at all, a probe timeout (PTO) sends probe packets instead of collapsing the congestion window the way a TCP retransmission timeout does. Flow control works as in HTTP/2 with credits per stream (`MAX_STREAM_DATA`) and per connection (`MAX_DATA`), plus one difference that matters for abuse: the stream limit `MAX_STREAMS` is a cumulative count of streams the peer may ever open, raised explicitly by the receiver, not a count of currently open streams. A peer cannot open and cancel streams faster than the server grants new stream credit.
+
+HTTP/3 maps each request to one client-initiated bidirectional stream. Connection-level control (SETTINGS, GOAWAY) goes on a dedicated unidirectional control stream, so HTTP/3 has no stream 0. Because streams are now delivered independently, HPACK's requirement that header blocks be decoded in arrival order would reintroduce HOL blocking, so HTTP/3 uses QPACK (RFC 9204): dynamic table updates travel on a separate encoder stream, the decoder acknowledges them on a decoder stream, and a header block that references an entry the decoder has not yet received is blocked only on that stream. The receiver bounds this with `SETTINGS_QPACK_BLOCKED_STREAMS`; both it and the dynamic table capacity default to 0, in which case QPACK uses only the static table and literals and never blocks.
+
+### Handshake, 0-RTT, and Address Validation
+
+A TLS 1.3 connection over TCP needs one round trip for the TCP handshake and another for TLS before the client can send a request, so the first response byte arrives after three round trips; with TLS 1.2 it takes four. QUIC carries the TLS 1.3 handshake messages inside its own packets, so transport and cryptographic setup happen in the same round trip.
+
+```mermaid
+sequenceDiagram
+    autonumber
     participant C as Client
     participant S as Server
- 
-    Note over C,S: TCP + TLS 1.3, cold start
-    C->>S: SYN
-    S-->>C: SYN-ACK
-    C->>S: ACK + ClientHello
-    S-->>C: ServerHello + Finished
-    C->>S: Finished + HTTP request
- 
-    Note over C,S: QUIC 1-RTT
-    C->>S: Initial: ClientHello
-    S-->>C: Initial + Handshake: ServerHello, cert
-    C->>S: Handshake done + HTTP request
+    alt First connection (1-RTT)
+        C->>S: Initial: ClientHello, transport params (padded to 1200 bytes)
+        S->>C: Initial + Handshake: ServerHello, cert, Finished
+        C->>S: Handshake Finished + 1-RTT: HTTP request
+        S->>C: 1-RTT: HTTP response
+    else Resumption with 0-RTT
+        C->>S: Initial: ClientHello with PSK + 0-RTT: HTTP request
+        S->>C: Handshake + 1-RTT: Finished, HTTP response
+        Note over C,S: 0-RTT data can be replayed by an attacker
+    end
 ```
-*QUIC folds the transport and cryptographic handshakes together, removing one full round trip from cold-start latency.*
- 
-### 0-RTT and the Replay Problem
- 
-With a cached session ticket, a client can send application data in the very first flight. The data is encrypted with a key derived from the resumption secret, which has no freshness guarantee: an on-path attacker can capture and replay the 0-RTT flight, and the server cannot distinguish it from the original.
- 
-Only idempotent requests may be carried in 0-RTT. A `POST /payments` replayed twice is a duplicate charge. Enforce this at the edge: reject non-safe methods in early data, or require an idempotency key (see [Idempotency and Safe HTTP Methods](/distributed-systems/en/communication/api-gateway/idempotency/)). Servers should also maintain an anti-replay window, though a distributed edge fleet cannot do so perfectly across POPs.
- 
-### Connection Migration and Connection IDs
- 
-A TCP connection is identified by the four-tuple, so a NAT rebinding or a Wi-Fi-to-cellular handoff kills it. QUIC identifies connections by an opaque **Connection ID** in the packet header, so the connection survives an address change: the client migrates, validates the new path, and continues without a new handshake. For mobile clients this eliminates the reconnect-and-retry storm that occurs on every network transition.
- 
-The operational consequence is that load balancers must route on Connection ID, not on the four-tuple. QUIC-aware balancers use routable connection IDs that encode a server identifier; without this, a migrated connection lands on a server that lacks the crypto state and can only reset it.
- 
-### QPACK: Compression Without Ordered Delivery
- 
-HPACK cannot work over QUIC, since streams may arrive out of order and the dynamic table would be applied inconsistently. **QPACK** splits the state onto dedicated unidirectional encoder and decoder streams and lets the encoder choose how aggressively to reference the dynamic table.
- 
-A reference to a table entry not yet received makes the request stream **blocked** until the encoder stream catches up — reintroducing HOL blocking at the compression layer, on purpose and under an explicit budget. `SETTINGS_QPACK_BLOCKED_STREAMS` bounds how many streams may be blocked. Setting it to zero disables risky references entirely: worse compression, zero compression-induced blocking. That is often the right choice for latency-sensitive APIs with low header repetition.
- 
-### The CPU Cost Nobody Budgets For
- 
-TCP runs in the kernel with decades of offload support. QUIC runs in userspace, and every packet crosses the syscall boundary and is individually encrypted. Early deployments measured roughly 2x the CPU of TLS-over-TCP for equivalent throughput; the gap closes with `UDP_SEGMENT` (GSO) and `GRO`, batched `sendmmsg`/`recvmmsg`, and kernel or NIC offload, but it does not vanish.
- 
-Practical operational items:
- 
-- Raise UDP socket buffers. Default `net.core.rmem_max` on Linux is far too small for high-throughput QUIC and manifests as receive-buffer drops, which the congestion controller misreads as network loss and responds to by lowering the send rate.
-- Monitor `netstat -su` receive errors, not just application metrics. QUIC loss is your congestion signal now.
-- Congestion control is your code's responsibility. Deploying a library with a poorly tuned or non-standard controller means shipping a transport change to production with no kernel-level review.
-```shell
-# UDP receive buffer sizing for a QUIC edge node. Defaults cause
-# silent receive-side drops that look like network loss to QUIC.
-sysctl -w net.core.rmem_max=16777216
-sysctl -w net.core.wmem_max=16777216
- 
-# Receive errors here indicate buffer drops, not path loss.
-netstat -su | grep -i "receive buffer errors"
- 
-# Confirm the negotiated protocol end to end.
-curl -sS --http3 -o /dev/null -w '%{http_version} %{time_connect}\n' https://api.example.com/health
+*QUIC connection establishment. A new connection sends the request after one round trip; a resumed connection sends it in the first flight.*
+
+In the first branch the request leaves in step 3, after one round trip, and the response arrives after two. In the resumption branch the client reuses a pre-shared key from an earlier session and sends the request with its first packet. At an illustrative 100 ms RTT, the first response byte arrives after about 400 ms with TCP and TLS 1.2, 300 ms with TCP and TLS 1.3, 200 ms with a new QUIC connection, and 100 ms with QUIC 0-RTT. Google reported that about 88% of desktop QUIC connections achieved 0-RTT in its 2017 deployment (with its pre-standard crypto handshake), but only 65-68% on mobile apps, because mobile clients change networks and lose cached state.
+
+0-RTT has a price that TLS cannot remove: the first flight is not protected against replay. An attacker who captures it can send it again, and the server will see the same request twice. RFC 9114 and RFC 8470 therefore expect servers to accept only safe, idempotent requests in early data, or to answer `425 Too Early`. Separately, because UDP has no handshake that proves the source address, a QUIC server must not send more than three times the bytes it has received to an unvalidated address. This anti-amplification limit is why the client's first datagram is padded to at least 1,200 bytes and why a server under attack can respond with a Retry packet carrying a token that the client must echo, costing one extra round trip but proving the address.
+
+:::caution[0-RTT turns a non-idempotent request into a replayable one]
+Enabling 0-RTT on a load balancer or CDN applies to every route behind it. A `POST /payments` accepted in early data can be replayed by anyone who captured the packet, and neither the application nor its logs can distinguish the replay from a client retry. Accept early data only for safe methods, or require an idempotency key on every state-changing route before turning it on. Check whether the proxy forwards an indication of early data (for example the `Early-Data: 1` header from RFC 8470) and whether the backend honors it.
+:::
+
+### Connection IDs, Migration, and Discovery
+
+TCP identifies a connection by its 4-tuple of addresses and ports, so a phone moving from Wi-Fi to cellular, or a NAT that rebinds the client to a new port after an idle period, ends the connection. QUIC identifies a connection by connection IDs chosen by each endpoint, so when packets arrive from a new address with a known connection ID, the server validates the new path with a PATH_CHALLENGE and PATH_RESPONSE exchange and continues the same connection with its streams intact. Endpoints rotate connection IDs on migration so that an observer cannot link the old and new paths.
+
+Migration has a direct consequence for load balancing. A layer 4 load balancer that hashes the UDP 4-tuple will send a migrated connection to a different server, which has no state for it. Large deployments therefore encode routing information in the server-chosen connection ID so that any balancer can route by connection ID; the IETF QUIC-LB work describes such encodings, and each provider's scheme is specific to its own infrastructure. Where routing by connection ID is not available, migration silently degrades into a new connection.
+
+Clients do not know in advance whether an origin speaks HTTP/3. The usual discovery is an `Alt-Svc` response header sent over HTTP/2 or HTTP/1.1, advertising `h3` on a UDP port, or an HTTPS DNS record (RFC 9460) that advertises ALPN values before the first connection. Because some networks block or rate-limit UDP, browsers race QUIC against TCP or fall back to TCP when QUIC fails, and remember failures. In Google's 2017 measurements 4.4% of clients could not use QUIC because QUIC or UDP was blocked or the path MTU was too small.
+
+## Production Trade-offs Across HTTP/1.1, HTTP/2, and HTTP/3
+
+The versions differ less in peak throughput than in what they share and where their costs land. HTTP/2 concentrates many requests on few connections, which helps header compression and congestion control but hurts connection-level load balancing and widens the blast radius of a single loss or a single misbehaving client. HTTP/3 removes transport HOL blocking and speeds up setup, but moves the transport into user space: no TCP segmentation offload in the usual sense, more system calls per byte unless the stack uses UDP generic segmentation offload (GSO) and batching, and a dependency on UDP being allowed end to end. Google's SIGCOMM 2017 paper reported QUIC reducing Google Search latency by 8.0% on desktop and 3.6% on mobile and YouTube rebuffering by 18.0% and 15.3%, at a server CPU cost that started at about 3.5 times TLS over TCP and was optimized to about twice. Those are Google's numbers on Google's traffic mix, not a general benchmark.
+
+| Property | HTTP/1.1 | HTTP/2 | HTTP/3 |
+|---|---|---|---|
+| Concurrency per connection | One response at a time | Many streams | Many streams |
+| HOL blocking | Per connection | Transport (TCP), plus header block ordering | Per stream only; QPACK can block a stream |
+| Setup before first request | TCP + TLS (2-3 RTT) | Same as HTTP/1.1, then amortized | 1 RTT, 0 RTT on resumption |
+| Header compression | None | HPACK, ordered | QPACK, out-of-order tolerant |
+| Connection survives address change | No | No | Yes, with connection IDs |
+| Server CPU per byte | Lowest | Low | Highest; kernel offloads partly unavailable |
+| Middlebox and tooling support | Universal | Universal over TLS | UDP may be blocked; fewer debugging tools |
+| When to prefer | Simple clients, legacy intermediaries, few long transfers | Service-to-service RPC, gRPC, low-loss data center paths | Mobile and internet clients on lossy or high-RTT paths, edge termination |
+
+The common production shape follows from the table: HTTP/3 terminates at the edge, at a CDN or front load balancer that faces mobile and browser clients, and HTTP/2 runs from the edge inward, where paths are short and clean. [gRPC](/distributed-systems/en/communication/synchronous-protocols/grpc-protocol-buffers/) is built on HTTP/2 framing and inherits all of its multiplexing and flow-control behavior; its streaming modes, which rely on long-lived HTTP/2 streams, are covered in [gRPC Streaming](/distributed-systems/en/communication/synchronous-protocols/grpc-streaming/), and WebSocket's use of HTTP/2 and HTTP/3 extended CONNECT in [WebSocket and Server-Sent Events](/distributed-systems/en/communication/synchronous-protocols/websocket-sse/).
+
+:::caution[Long-lived HTTP/2 connections defeat connection-level load balancing]
+A layer 4 load balancer balances connections, not requests. An HTTP/2 client that opens one connection and keeps it for hours sends all of its requests to one backend, and newly added backends receive no traffic until clients reconnect. Use a request-aware balancer, as explained in [L4 vs. L7 Load Balancing](/distributed-systems/en/communication/load-balancing/l4-vs-l7/) and [Client-Side vs. Server-Side Load Balancing](/distributed-systems/en/communication/load-balancing/client-vs-server-side/), or bound connection lifetime on the server so that clients rebalance through GOAWAY.
+:::
+
+### The Parameters That Matter
+
+Four limits decide how an HTTP/2 or HTTP/3 server behaves under load and abuse: the concurrent stream limit, the stream and connection flow-control windows, the maximum header list size, and the per-connection rate of stream creation and cancellation. The first three are protocol settings; the last is an implementation policy added after Rapid Reset. Envoy's edge-proxy guidance shows the shape for an internet-facing listener; the defaults it overrides are tuned for service-mesh traffic between trusted peers.
+
+```yaml
+# Envoy HttpConnectionManager, downstream (client-facing) side, edge guidance
+http2_protocol_options:
+  max_concurrent_streams: 100          # streams open at once per connection
+  initial_stream_window_size: 65536    # 64 KiB per stream: bounds per-stream buffering
+  initial_connection_window_size: 1048576  # 1 MiB for all streams on the connection
+common_http_protocol_options:
+  max_headers_count: 100               # reject header lists with too many fields
 ```
- 
-### Discovery, Middleboxes, and Fallback
- 
-A client does not begin with HTTP/3. It learns about it from an `Alt-Svc: h3=":443"; ma=86400` response header over HTTP/2, or from a DNS `HTTPS` (SVCB) record carrying `alpn=h3`, which removes the first-connection penalty. Because UDP/443 is blocked or aggressively rate-limited on some corporate and carrier networks, clients race QUIC against TCP (a "happy eyeballs" strategy) and fall back. Any deployment must keep an HTTP/2 path serving.
- 
-QUIC also encrypts nearly the entire packet including most header fields, which defeats middlebox inspection — the deliberate anti-ossification design that lets QUIC evolve, and simultaneously the reason some network operators drop it.
- 
-## Configuration in Practice
- 
-```go
-package main
- 
-import (
-	"crypto/tls"
-	"log/slog"
-	"net/http"
-	"time"
- 
-	"github.com/quic-go/quic-go"
-	"github.com/quic-go/quic-go/http3"
-	"golang.org/x/net/http2"
-)
- 
-func main() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
- 
-	h2 := &http2.Server{
-		// Bound in-flight work per connection. Too low serializes clients,
-		// too high turns one connection into an unbounded work queue.
-		MaxConcurrentStreams: 250,
-		// Raise above the 64 KB default or a single stream is capped by
-		// the bandwidth-delay product on any high-RTT path.
-		MaxUploadBufferPerStream:     8 << 20,
-		MaxUploadBufferPerConnection: 32 << 20,
-		// Detect dead peers behind a NAT that silently dropped state.
-		IdleTimeout:      120 * time.Second,
-		ReadIdleTimeout:  30 * time.Second,
-		PingTimeout:      15 * time.Second,
-		MaxReadFrameSize: 1 << 20,
-	}
- 
-	tcpSrv := &http.Server{
-		Addr:              ":443",
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,  // slowloris bound
-		WriteTimeout:      30 * time.Second, // must exceed the slowest legitimate response
-		TLSConfig: &tls.Config{
-			MinVersion: tls.VersionTLS13,
-			NextProtos: []string{"h2", "http/1.1"}, // ALPN order is preference order
-		},
-	}
-	if err := http2.ConfigureServer(tcpSrv, h2); err != nil {
-		slog.Error("h2 configure failed", "err", err)
-		return
-	}
- 
-	h3 := &http3.Server{
-		Addr:    ":443",
-		Handler: mux,
-		TLSConfig: &tls.Config{
-			MinVersion: tls.VersionTLS13,
-			NextProtos: []string{"h3"},
-		},
-		QUICConfig: &quic.Config{
-			MaxIncomingStreams:             250,
-			InitialStreamReceiveWindow:     4 << 20,
-			InitialConnectionReceiveWindow: 16 << 20,
-			MaxIdleTimeout:                 30 * time.Second,
-			KeepAlivePeriod:                15 * time.Second,
-			// Only enable after non-idempotent methods are rejected in
-			// early data; 0-RTT payloads are replayable by design.
-			Allow0RTT: false,
-		},
-	}
- 
-	// Advertise h3 on the TCP responses, otherwise clients never discover it.
-	advertised := withAltSvc(mux, `h3=":443"; ma=86400`)
-	tcpSrv.Handler = advertised
-	h3.Handler = advertised
- 
-	go func() {
-		if err := h3.ListenAndServe(); err != nil {
-			// UDP/443 may be blocked; TCP must keep serving regardless.
-			slog.Error("h3 listener stopped", "err", err)
-		}
-	}()
- 
-	if err := tcpSrv.ListenAndServeTLS("cert.pem", "key.pem"); err != nil &&
-		err != http.ErrServerClosed {
-		slog.Error("h2 listener stopped", "err", err)
-	}
-}
- 
-func withAltSvc(next http.Handler, value string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor < 3 {
-			w.Header().Set("Alt-Svc", value)
-		}
-		next.ServeHTTP(w, r)
-	})
-}
+
+The windows are a memory budget as much as a throughput limit: a proxy that advertises a 1 MiB connection window to 10,000 downstream connections has committed to buffering up to 10 GB if every upstream stalls. The same windows cap throughput, so a 1 MiB connection window allows about 168 Mbit/s for all streams of a connection at 50 ms RTT. The trade-off is resolved per side: small windows toward untrusted internet clients, larger windows toward trusted upstreams on short paths where the bandwidth-delay product is small anyway. Defaults change between versions of Envoy, nginx, Go and other stacks, so read the current documentation rather than assuming the values above are defaults anywhere.
+
+## Failure Modes in Production
+
+### Rapid Reset: Stream Creation Without Concurrency
+
+In August 2023, attacks against Google, Cloudflare and AWS used a property of HTTP/2 that had been in the specification since 2015. A client opens a stream with HEADERS and immediately cancels it with RST_STREAM. The cancelled stream no longer counts toward `SETTINGS_MAX_CONCURRENT_STREAMS`, so the client never hits the limit and can send requests as fast as its uplink allows, while the server still allocates stream state, decodes headers, routes the request and, in a reverse proxy, often forwards it upstream before the reset is processed. Google reported a peak above 398 million requests per second and Cloudflare above 201 million, from a botnet Cloudflare estimated at about 20,000 machines. The issue was disclosed on 10 October 2023 as CVE-2023-44487.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Bot client
+    participant P as Reverse proxy
+    participant U as Upstream service
+    loop thousands of times per second on one connection
+        B->>P: HEADERS stream N (GET /expensive)
+        B->>P: RST_STREAM stream N (CANCEL)
+        P->>U: forwarded request N (already routed)
+        Note over P: open streams stays near 0, limit of 100 never reached
+    end
+    Note over P,U: proxy CPU and upstream load climb, bot pays almost nothing
+    P->>P: per-connection reset counter exceeds threshold
+    P->>B: GOAWAY then close TCP connection
 ```
- 
-## Failure Modes and Operational Pitfalls
- 
-**Throughput collapse from default flow-control windows.** Symptom: HTTP/2 or gRPC streams cap at a few Mbps on high-RTT links while HTTP/1.1 with six connections is faster. Detection: throughput inversely proportional to RTT with no packet loss. Fix by sizing the windows to the BDP on both peers — a large window on one side alone accomplishes nothing.
- 
-**Load imbalance from long-lived connections.** Symptom: newly scaled pods sit at near-zero CPU while old ones saturate. Detection: per-backend request rate variance after a scale-out event. Fix with `max_connection_age` plus jitter and `GOAWAY`-based rebalancing.
- 
-**Rapid Reset and stream-accounting bypass.** Symptom: origin CPU saturation with modest connection counts and normal-looking concurrency metrics. Detection: `RST_STREAM` rate per connection, and requests-dispatched versus streams-concurrent divergence.
- 
-**Silent 0-RTT replay.** Symptom: duplicate side effects with no duplicate at the application layer's request log, since the replay is a legitimately authenticated request. This is why `Allow0RTT` must default off and be enabled only for safe methods.
- 
-**QUIC misdiagnosed as network loss.** Symptom: high retransmission and low throughput on a healthy path. Detection: kernel UDP receive-buffer errors climbing while the NIC shows no drops. Fix with socket buffer sizing and GSO/GRO enablement, not with congestion-control tuning.
- 
-**Timeout stacking across three protocol layers.** QUIC idle timeout, HTTP/3 request timeout, application handler deadline, and client patience must be ordered from innermost-shortest to outermost-longest. An idle timeout shorter than the keepalive interval tears down healthy connections continuously; the reconnect churn then looks like an upstream fault. See [Timeouts](/distributed-systems/en/resilience/protection-patterns/timeouts/).
- 
-**Connection coalescing surprises.** HTTP/2 clients reuse a connection for a different hostname if the certificate covers it and the IP matches. Two "independent" services behind one wildcard certificate share a connection, a flow-control window, and a `GOAWAY` — so one service's shutdown disrupts the other.
- 
-## When to Prefer Which
- 
-| Dimension | HTTP/1.1 | HTTP/2 | HTTP/3 |
-|-----------|----------|--------|--------|
-| Transport HOL blocking | Masked by parallel connections | Present, worsens with loss | Eliminated |
-| Cold-start RTTs to first byte | 2 (TCP + TLS 1.3) | 2 | 1, or 0 on resumption |
-| CPU per byte | Lowest | Low | Highest, improving with offload |
-| Network survivability | Reconnect on IP change | Reconnect on IP change | Connection migration |
-| Debuggability | Trivially readable | Requires tooling | Requires keylog plus tooling |
-| Middlebox compatibility | Universal | Universal over TLS | UDP blocked on some networks |
- 
-Use HTTP/1.1 for low-volume internal endpoints, health checks, and anything where operator readability matters more than efficiency. Use HTTP/2 as the default for service-to-service traffic inside a datacenter, where loss is near zero so transport HOL blocking is not a practical concern and gRPC depends on it anyway (see [gRPC and Protocol Buffers](/distributed-systems/en/communication/synchronous-protocols/grpc-protocol-buffers/)). Use HTTP/3 for the internet-facing edge: mobile clients, lossy or high-RTT paths, and traffic patterns with many small parallel objects. Deploying HTTP/3 between two racks in the same datacenter buys nothing and costs CPU, because the loss rate that justifies it does not exist there.
+*Rapid Reset from the server's view. The concurrency limit bounds open streams, not created streams, so it never triggers; only a per-connection reset counter catches the attack.*
+
+The asymmetry in steps 1-3 is the attack: the client spends two small frames, the proxy and its upstream spend a full request. From the outside, symptoms are request rate and CPU rising sharply on the edge tier while response bytes do not rise in proportion, a high share of requests ending as client cancellations (in Envoy, reset-stream counters such as `downstream_rq_rx_reset`; in access logs, client-closed or reset response flags), and few connections carrying enormous request counts. The fixes shipped by every major implementation in October 2023 track per-connection statistics and close connections whose reset rate or reset share exceeds a threshold, and limit how many handlers a connection can have running even after their streams were reset; Go fixed it in 1.21.3 and 1.20.10 by bounding concurrently executing handlers to the stream limit. Recovery is patching plus a policy that closes connections rather than rejecting single requests, since closing the connection is the only response that costs the attacker anything. QUIC's cumulative `MAX_STREAMS` credit makes the direct variant harder, but Google's guidance still recommends limiting the work one QUIC connection can trigger.
+
+### CONTINUATION Flood and Header-Size Exhaustion
+
+In April 2024, Bartek Nowotarski disclosed a family of vulnerabilities in which a client sends a HEADERS frame without the END_HEADERS flag and then an unbounded sequence of CONTINUATION frames. Because the header block must be contiguous and decoded in order, many implementations kept accumulating it in memory or kept decoding it without a limit, and in several implementations a single TCP connection was enough to exhaust memory or CPU. CERT/CC coordinated fixes across implementations including Apache httpd, nghttp2, Envoy, Node.js and Go. Detection is hard, because a header block that never completes never becomes a request and therefore never appears in access logs; the signal is memory or CPU growth per connection without a matching request rate. Mitigation is an enforced maximum header list size (`SETTINGS_MAX_HEADER_LIST_SIZE` and the implementation's own byte and field-count limits) applied while frames arrive, not after the block completes, plus a timeout on incomplete header blocks.
+
+### Flow-Control Stalls
+
+A stream whose receiver never returns WINDOW_UPDATE stops after one window of data. Two failure shapes are common. The first is the default-window throughput ceiling: uploads through a proxy run at a fixed rate that scales with `window / RTT` and not with link capacity, so cross-region transfers are slow while same-region transfers are fine. The second is a connection-window deadlock in proxies: one slow consumer holds data it has not read, the connection window fills, and every other stream on the connection stops although its own stream window is open. Detection is per-stream throughput flat at a value equal to the window divided by RTT, or streams stuck with zero send window in proxy debug stats. Mitigation is sizing windows to the bandwidth-delay product of the path, letting the proxy buffer and return connection credit independently of slow streams, and timeouts that reset streams which make no progress, as discussed in [Timeouts](/distributed-systems/en/resilience/protection-patterns/timeouts/).
+
+### Connection Concentration and Rebalancing Storms
+
+When a backend set behind a layer 4 balancer scales out, existing HTTP/2 clients keep their connections and the new instances stay idle; when it scales in or deploys, every client on the removed instance reconnects at once. The symptom is persistent per-instance load skew with uniform request routing configuration, followed by load spikes at deploys. Detection compares requests per second per instance with active connections per instance. Mitigation is request-level balancing, a bounded maximum connection age with jitter so that reconnections spread out, and draining through GOAWAY as described in [Health-Aware Routing and Connection Draining](/distributed-systems/en/communication/load-balancing/health-aware-routing/).
+
+### UDP Black Holes and Fallback Latency
+
+QUIC fails in ways TCP does not. Some enterprise firewalls block UDP 443; some networks rate-limit UDP; some paths drop datagrams larger than a smaller-than-expected MTU, which QUIC cannot fragment around because it forbids IP fragmentation and requires a minimum of 1,200 bytes. When the first Initial packets vanish, the client waits for its handshake timeout before falling back to TCP, unless it races both. Google's 2017 paper also documents ossification from the other direction: a one-bit change in a QUIC header field caused heavy packet loss for users behind one firewall brand that had used that field to classify traffic. Detection is the share of connections per network or client population that fall back to TCP, handshake timeout counters, and HTTP/3 traffic share dropping for one autonomous system. Mitigation is to always keep a TCP path available, to race rather than serialize, and to cache negative results per network.
+
+### Summary of Failure Signatures
+
+| Failure | Symptom | Detection | Mitigation |
+|---|---|---|---|
+| Rapid Reset | Edge CPU and request rate spike, low response bytes | Reset and cancel counters per connection, requests per connection | Patched stack, per-connection reset limits, close connections |
+| CONTINUATION flood | Memory or CPU growth, no matching access logs | Memory per connection, incomplete header blocks | Header size limits enforced during receipt, header timeouts |
+| Flow-control stall | Throughput flat at window divided by RTT | Per-stream throughput, zero-window streams | Size windows to path BDP, progress timeouts |
+| Connection concentration | Load skew across instances, reconnect spikes at deploys | Requests and connections per instance | L7 or client-side balancing, max connection age with jitter |
+| TCP HOL on lossy paths | p99 latency far above p50 with low loss | Retransmissions per connection versus tail latency | HTTP/3 at the edge, fewer streams per connection |
+| UDP black hole | Slow first loads on some networks | Fallback rate per network, handshake timeouts | Race QUIC and TCP, keep TCP path, cache failures |
+| 0-RTT replay | Duplicate state-changing requests | Duplicate idempotency keys, early-data flags | Early data only for safe methods, `425 Too Early` |
+
+## Choosing a Protocol Version
+
+Use HTTP/2 for service-to-service traffic inside a region. Paths are short and nearly lossless, so TCP HOL blocking rarely bites, kernel TCP offloads keep CPU low, and gRPC requires it anyway. Pair it with request-level load balancing, a bounded connection lifetime and the per-connection abuse limits above. Do not use HTTP/2 multiplexing as a substitute for capacity: one connection carrying 500 streams to one backend is still one backend, and a single TCP connection's congestion window is shared by all of them.
+
+Use HTTP/3 where the client is on a path you do not control: browsers and mobile apps reaching an edge, especially on cellular networks, across continents, or where clients switch networks. The gains come from three places that the worked example and handshake arithmetic quantify, namely fewer stalled streams on loss, one fewer round trip on every new connection, and connections that survive address changes. Terminate it at a CDN or edge proxy whose QUIC stack is maintained by someone who tunes it, and keep HTTP/2 and HTTP/1.1 enabled for clients whose networks block UDP.
+
+Do not deploy HTTP/3 inside a data center to fix tail latency without first measuring loss: if retransmissions are negligible, the CPU cost buys nothing, and debugging tools for encrypted user-space transports are weaker than those for TCP. Do not enable 0-RTT on routes that change state unless requests carry idempotency keys. Keep HTTP/1.1 where intermediaries, embedded clients or legacy tooling cannot speak HTTP/2, and for a small number of large, long transfers where multiplexing adds nothing. When the bottleneck is a slow or overloaded server rather than the transport, no protocol version helps; the tools for that problem are [load shedding](/distributed-systems/en/resilience/flow-control/load-shedding/) and [retry budgets](/distributed-systems/en/resilience/flow-control/retry-storms-metastable-failures/).
+
+:::note
+Head-of-line blocking also exists above HTTP. A gRPC client that serializes calls through one stream, a message broker partition processed in order, or a connection pool whose slots are held by slow requests all reproduce the same pattern with different queues. Changing the HTTP version removes only the HOL blocking in the HTTP framing and transport layers.
+:::
+
+## Further Reading
+
+- Martin Thomson and Cory Benfield (eds.), *RFC 9113: HTTP/2*, IETF, 2022.
+- Jana Iyengar and Martin Thomson (eds.), *RFC 9000: QUIC: A UDP-Based Multiplexed and Secure Transport*, IETF, 2021.
+- Mike Bishop (ed.), *RFC 9114: HTTP/3*, IETF, 2022.
+- Adam Langley et al., *The QUIC Transport Protocol: Design and Internet-Scale Deployment*, ACM SIGCOMM, 2017.
+- Juho Snellman and Daniele Iamartino, *How it works: The novel HTTP/2 'Rapid Reset' DDoS attack*, Google Cloud Blog, 2023.

@@ -3,6 +3,10 @@
 
 Usage:
   python3 authoring/check.py <slug> [--type topic|chapter-overview|part-overview]
+                                    [--depth standard|deep]
+
+--depth applies to topic pages only and must match the tier chosen for the page
+(see project-instruction.md section 2.1).
 
 Resolves both files under src/content/docs/{en,tr}/, checks each page on its own,
 then checks that the pair is structurally identical. Exit code 0 = pass, 1 = errors.
@@ -18,6 +22,11 @@ CONFIG = Path("astro.config.mjs")
 ALLOWED_TAGS = {"text", "go", "java", "csharp", "python", "typescript", "rust", "yaml",
                 "json", "sql", "shell", "toml", "proto", "mermaid"}
 ASIDE = re.compile(r"^:::(note|tip|caution|danger)\b", re.M)
+# EN prose words (hard min, soft min, max), mermaid (min, max), asides (min, max)
+TIERS = {
+    "standard": ((2000, 3000, 4500), (3, 6), (2, 3)),
+    "deep": ((4500, 4500, 7000), (3, 8), (2, 4)),
+}
 LIMITS = {  # EN prose words (min, max), mermaid (min, max)
     "topic": ((2000, 4500), (3, 6)),
     "chapter-overview": ((700, 1800), (1, 3)),
@@ -153,6 +162,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("slug")
     ap.add_argument("--type", default="topic", choices=list(LIMITS))
+    ap.add_argument("--depth", default="standard", choices=list(TIERS))
     a = ap.parse_args()
     slugs = known_slugs()
     errors, warnings = [], []
@@ -173,12 +183,34 @@ def main():
         warnings += [f"[{loc}] {w}" for w in r["warnings"]]
 
     (wmin, wmax), (dmin, dmax) = LIMITS[a.type]
+    amin, amax = 2, 3
+    if a.type == "topic":
+        (hard_min, soft_min, wmax), (dmin, dmax), (amin, amax) = TIERS[a.depth]
     if "en" in res:
         en = res["en"]
-        if en["words"] < wmin:
-            errors.append(f"[en] prose {en['words']} words, below minimum {wmin}")
-        elif en["words"] > wmax:
-            warnings.append(f"[en] prose {en['words']} words, above target {wmax}")
+        w = en["words"]
+        if a.type != "topic":
+            if w < wmin:
+                errors.append(f"[en] prose {w} words, below minimum {wmin}")
+            elif w > wmax:
+                warnings.append(f"[en] prose {w} words, above target {wmax}")
+        elif a.depth == "standard":
+            if w < hard_min:
+                errors.append(f"[en] prose {w} words: below {hard_min}, the page is incomplete")
+            elif w < soft_min:
+                warnings.append(f"[en] prose {w} words, below {soft_min}: re-check the depth standard")
+            elif w > wmax:
+                errors.append(f"[en] prose {w} words exceeds the standard tier ({wmax}): if the content "
+                              "genuinely needs it, classify the page as deep (with justification); "
+                              "otherwise remove repetition, never substance")
+        else:
+            if w > wmax:
+                errors.append(f"[en] prose {w} words exceeds the deep tier ({wmax}): the page covers more "
+                              "than one topic; refocus it and record a split proposal")
+            elif w < 4000:
+                errors.append(f"[en] prose {w} words is a standard-length page; classify it as standard")
+            elif w < soft_min:
+                warnings.append(f"[en] prose {w} words fits the standard tier; deep is not justified by length")
         n = len(en["mermaid"])
         if not dmin <= n <= dmax:
             errors.append(f"[en] {n} mermaid diagrams (expected {dmin}-{dmax})")
@@ -186,8 +218,8 @@ def main():
         if a.type == "topic" and len(kinds) < 2:
             errors.append("[en] diagrams must use at least two diagram types")
         if a.type == "topic":
-            if not 2 <= len(en["asides"]) <= 3:
-                errors.append(f"[en] {len(en['asides'])} asides (expected 2-3)")
+            if not amin <= len(en["asides"]) <= amax:
+                errors.append(f"[en] {len(en['asides'])} asides (expected {amin}-{amax} for {a.depth})")
             if en["tables"] < 1:
                 errors.append("[en] no table found")
             if not any(h.strip().lower() == "further reading" for h in en["h2"]):
@@ -222,6 +254,8 @@ def main():
     if "en" in res:
         print(f"en words={res['en']['words']} diagrams={len(res['en']['mermaid'])} "
               f"code={len(res['en']['code'])} asides={len(res['en']['asides'])} tables={res['en']['tables']}")
+    if a.type == "topic":
+        print(f"depth={a.depth}")
     print("PASS" if not errors else f"FAIL ({len(errors)} errors)")
     sys.exit(1 if errors else 0)
 

@@ -1,338 +1,280 @@
 ---
-title: "2.1.1. REST: Constraints, Resources, and HTTP Contracts"
-description: "The six REST constraints as engineering trade-offs, resource and URI modeling, and the HTTP contract that makes caching, retries, and optimistic concurrency safe across service boundaries."
-lastUpdated: 2026-08-01
-sidebar:
-  order: 1
+title: "REST: Constraints, Resources, and HTTP Contracts"
+description: "What the REST constraints buy and cost, how HTTP methods, status codes, validators and cache directives form a contract that intermediaries can act on, and how lost updates, duplicate creates, cache leaks and keep-alive races break it."
+lastUpdated: 2026-11-04
 ---
 
-REST is an architectural style defined by six constraints, and every one of them is a trade: you give up a capability at the server in exchange for a property in the network. Statelessness costs you per-request context reconstruction and buys you horizontal scalability and free failover. A uniform interface costs you protocol-level efficiency and buys you intermediaries — caches, proxies, gateways — that understand your traffic without knowing your domain. Most systems that call themselves RESTful adopt the URI aesthetics and discard the constraints, which is why they inherit none of the benefits and all of the verbosity.
- 
-**REST** (Representational State Transfer) was specified by Roy Fielding as a description of how HTTP itself is supposed to work. That origin matters mechanically: the guarantees below are not conventions layered on top of HTTP, they are properties HTTP already implements in every CDN, reverse proxy, and browser cache on the path. When you break the constraints, you do not merely violate a style guide — you silently disable infrastructure that was doing work for you.
- 
-## The Six Constraints as Engineering Trade-offs
- 
-### Client-Server and Layered System
- 
-Client-server separates the user-interface concern from data storage, allowing independent evolution. **Layered system** is the constraint with the most operational leverage: a client cannot tell whether it is talking to the origin server or to an intermediary. That indistinguishability is what makes it legal to insert a CDN edge, a caching reverse proxy, a TLS-terminating load balancer, or an API gateway without touching client code.
- 
-The cost is that each layer adds latency and each layer can only act on information visible in the HTTP envelope. An intermediary cannot cache a response whose freshness depends on a field buried in the JSON body. This is the single most common reason production REST APIs get zero cache-hit rate: correctness information lives in the payload rather than in headers.
- 
+Representational State Transfer (REST) is the architectural style Roy Fielding derived in his 2000 dissertation to describe why the Web scales: a set of constraints on how components interact, chosen so that the network between client and server can understand, cache, retry, and route messages without knowing anything about the application. A REST interface exposes resources, each named by a URI, and lets clients act on them only by transferring representations (a JSON document, an image, an HTML page) through a small, fixed set of methods whose meaning every participant agrees on in advance. HTTP is the protocol that was shaped around those constraints, so in practice "a REST API" means an HTTP API whose methods, status codes, and headers are used with their standardized meaning.
+
+The core trade-off is generality against efficiency. Because every message is self-contained and uses a uniform vocabulary, a cache, proxy, gateway, or load balancer that has never seen your service can still decide whether a response may be stored, whether a failed request may be resent, and whether a client's copy is still current. The price is that application semantics must be squeezed into that generic vocabulary: operations that are not naturally "read or replace this document" become awkward, each request carries its own context in verbose headers, and a client that needs data from several resources pays several round trips. REST optimizes for large-grained, cacheable, long-lived interfaces between parties that evolve independently; it is a poor fit for chatty, low-latency calls between tightly coupled components.
+
+This page concentrates on the parts of the HTTP contract that decide correctness in production: method semantics, preconditions, caching, and status codes as control signals. Idempotency keys are covered in [Idempotency and Safe HTTP Methods](/distributed-systems/en/communication/api-gateway/idempotency/), versioning in [API Versioning Strategies](/distributed-systems/en/communication/synchronous-protocols/api-versioning/), and the transport underneath in [HTTP/2 and HTTP/3](/distributed-systems/en/communication/synchronous-protocols/http2-http3-quic/).
+
 ```mermaid
 flowchart LR
-    Client -->|GET /accounts/42| CDN
-    CDN -->|miss| Gateway
-    Gateway -->|authz + rate limit| Origin
-    Origin -->|200 + ETag + Cache-Control| Gateway
-    Gateway --> CDN
-    CDN -->|stores by URI + Vary| Client
+    C["Client"] -->|"GET /products/42"| CDN["Shared cache (CDN)"]
+    CDN -->|"miss or revalidate"| GW["API gateway"]
+    GW --> SVC["Product service"]
+    SVC --> DB[("Database")]
+    CDN -.->|"reads: method, Cache-Control, Vary, ETag"| N1["Store or forward?"]
+    GW -.->|"reads: method, status, Retry-After"| N2["Retry, limit, route?"]
+    SVC -.->|"reads: If-Match, If-None-Match"| N3["Apply or reject write?"]
 ```
-*Each layer acts only on the HTTP envelope; a body-encoded freshness rule is invisible to all three intermediaries.*
- 
-### Statelessness: Cost Moved to the Wire
- 
-Every request must carry all information required to understand it. No server-side session affinity, no "the second call assumes the first one happened on this box."
- 
-- **Benefit:** any replica can serve any request. Instance death costs zero user-visible state. Autoscaling and rolling updates become trivial, since draining a node loses nothing (see [Health-Aware Routing and Connection Draining](/distributed-systems/en/communication/load-balancing/health-aware-routing/)).
-- **Cost:** authentication material, pagination cursors, and tenant context are re-transmitted and re-validated per request. A JWT with 40 claims plus a trace context can push request headers past 4 KB, which matters when the server has a `max_header_size` limit or when HPACK dynamic-table pressure degrades multiplexing efficiency under HTTP/2.
-- **Anti-pattern:** sticky sessions used to "make REST work." Session affinity converts a stateless tier into a stateful one with none of the durability guarantees of a real state store. On rebalance, users lose carts and half-finished wizards.
-Server-side state does not disappear; it moves into an explicit store (Redis, database) addressed by an identifier the client carries. That is a legitimate design, and it is materially different from affinity: the state is durable, replicated, and observable.
- 
-### Cacheability
- 
-Responses must be explicitly labeled cacheable or non-cacheable. HTTP defines two independent mechanisms, and confusing them is a common source of stale-data incidents:
- 
-1. **Freshness** — `Cache-Control: max-age`, `s-maxage`, `Expires`. The cache may serve the stored copy without contacting the origin. This eliminates a round trip entirely.
-2. **Validation** — `ETag` / `Last-Modified` with `If-None-Match` / `If-Modified-Since`. The cache still makes a round trip, but a `304 Not Modified` avoids body transfer and origin serialization work.
-Freshness saves latency; validation saves bandwidth and origin CPU. A read-heavy endpoint with a P99 dominated by network RTT needs freshness. An endpoint returning a 2 MB catalog that changes hourly needs validation.
- 
-:::caution
-`Cache-Control: private` and `Vary: Authorization` are not interchangeable. `private` forbids shared caches from storing the response at all. `Vary: Authorization` permits storage but keys the entry by credential — which, on a CDN with millions of distinct tokens, produces an unbounded key space and a permanent 0% hit rate while consuming storage. For per-user data, use `private`, and reserve `Vary` for genuine representation variance such as `Accept-Encoding`.
-:::
- 
-### Uniform Interface
- 
-The uniform interface is four sub-constraints: identification of resources (URIs), manipulation through representations, self-descriptive messages, and hypermedia as the engine of application state (**HATEOAS**).
- 
-The first three are what make intermediaries possible. Self-descriptive means a proxy can determine, from method and headers alone, whether a request is safe to retry, whether a response is cacheable, and how to parse the body. It is why `POST /getUser` is broken in a way that `GET /users/42` is not: the proxy must treat the POST as unsafe and uncacheable, so every read hits the origin.
- 
-HATEOAS is the constraint essentially nobody implements, and honesty is better than pretending. Its purpose is decoupling clients from URI structure: the client knows one entry point and discovers transitions from link relations in responses. It pays off when clients are numerous, independently deployed, and cannot be upgraded in lockstep — public APIs, long-lived embedded devices. It does not pay off for a first-party single-page app deployed alongside the API, where the client is generated from an [OpenAPI](/distributed-systems/en/communication/api-gateway/openapi-swagger/) document and coupled to the schema anyway. Adding `_links` to every payload while clients continue to hardcode URI templates is pure overhead.
- 
-### Code-on-Demand
- 
-The only optional constraint: the server may ship executable code (historically JavaScript) that extends the client. Rarely relevant to service-to-service APIs; the security surface is obvious.
- 
-## Resource Modeling: Identity Versus Representation
- 
-A **resource** is a conceptual mapping to a set of entities — not a row, not a class, not a DTO. A **representation** is a serialization of that resource's state at a point in time. `/accounts/42` identifies the account forever; `application/json` and `application/vnd.company.account.v2+json` are two representations of it.
- 
-The consequence is that resource identity must be stable across schema changes, storage migrations, and refactors. A URI containing a database shard identifier or an internal type discriminator will break the moment you reshard (see [Dynamic Rebalancing](/distributed-systems/en/data-management/data-partitioning/dynamic-rebalancing/)).
- 
-### URI Design That Survives Contact With Production
- 
-- Nouns for identity, HTTP method for the verb. `POST /accounts/42/transfers` rather than `POST /doTransfer?account=42`. The former makes the created thing addressable: the response carries `201 Created` with `Location: /transfers/8f3a`, and the client can `GET` it later to check state.
-- Plural collections, singular members: `/accounts`, `/accounts/42`.
-- Sub-resources only for genuine containment. `/accounts/42/transactions` is correct when a transaction has no meaning outside the account. If the same entity is reachable from two parents, promote it to a top-level resource and use query filters, otherwise you own two cache keys for one entity and must invalidate both.
-- Operations that are not CRUD do exist. A state transition like "cancel" is best modeled either as a sub-resource creation (`POST /orders/91/cancellations`) or as a `PATCH` on a status field, depending on whether the transition itself has attributes worth persisting (reason, actor, timestamp). Cramming everything into `PUT` on the aggregate forces read-modify-write cycles and widens the lost-update window.
-- Never encode the response format in the path. `/accounts/42.json` fragments the cache and duplicates the identity; use `Accept`.
-### Content Negotiation and Representation Variance
- 
-`Accept`, `Accept-Encoding`, and `Accept-Language` select among representations; the origin must echo `Vary` listing exactly the request headers that influenced the choice. Omitting `Vary: Accept-Encoding` behind a shared cache is a classic incident: a gzip-encoded body gets served to a client that did not advertise gzip support, producing what looks like binary corruption at the application layer.
- 
-### Collections, Pagination, and the Unstable Offset
- 
-Offset pagination (`?offset=1000&limit=50`) has two production failures. First, cost: most engines must scan and discard the skipped rows, so P99 degrades linearly with page depth. Second, correctness: concurrent inserts and deletes shift the window, so clients silently skip or duplicate items during a full traversal.
- 
-Keyset (cursor) pagination — `WHERE (created_at, id) < (:ts, :id) ORDER BY created_at DESC, id DESC LIMIT 50` — is O(log n) per page via the index and is stable under concurrent writes, at the cost of losing random page access. Encode the cursor as an opaque token so the tuple layout stays a server-side implementation detail; if you expose the raw sort key, you have published an unversioned contract you can never change.
- 
-## The HTTP Contract
- 
-### Safety, Idempotency, and Retry Semantics
- 
-The method table is a machine-readable contract that determines whether an intermediary, a client library, or a service mesh may retry a request after a timeout.
- 
-| Method | Safe | Idempotent | Cacheable | Retry after timeout? |
-|--------|------|-----------|-----------|----------------------|
-| `GET` | Yes | Yes | Yes | Always |
-| `HEAD` | Yes | Yes | Yes | Always |
-| `PUT` | No | Yes | No | Yes, if the body is a full replacement |
-| `DELETE` | No | Yes | No | Yes; expect `404`/`204` on the second attempt |
-| `POST` | No | No | Only with explicit freshness | Only with an idempotency key |
-| `PATCH` | No | Not inherently | No | Only if the patch is defined to be idempotent |
- 
-**Safe** means no intended state change, which is what allows a crawler or prefetching proxy to issue the request unprompted. **Idempotent** means N identical requests leave the same server state as one — it says nothing about the response being identical, which is why a second `DELETE` returning `404` is still idempotent.
- 
-`PATCH` is idempotent only for absolute operations. `{"op":"replace","path":"/status","value":"closed"}` (RFC 6902 JSON Patch) is idempotent; `{"op":"add","path":"/tags/-","value":"vip"}` appends and is not. JSON Merge Patch (RFC 7386) is idempotent by construction but cannot express array element edits or distinguish "set to null" from "leave alone" beyond its own null-means-delete rule. Choose deliberately and document it — a retrying client plus a non-idempotent patch is a duplicated-append bug that surfaces only under packet loss.
- 
-For `POST`, retry safety requires a client-generated **idempotency key** persisted with the operation result; the full mechanism, key lifetime, and concurrent-request handling are covered in [Idempotency and Safe HTTP Methods](/distributed-systems/en/communication/api-gateway/idempotency/).
- 
-### Conditional Requests: Caching and Optimistic Concurrency From One Primitive
- 
-The same `ETag` serves two purposes. On reads, `If-None-Match` enables `304`. On writes, `If-Match` implements compare-and-swap over HTTP: the server compares the supplied validator against the current one and returns `412 Precondition Failed` on mismatch. This is optimistic concurrency control with no lock, no lease, and no coordination cost until the moment of conflict.
- 
+*A layered request path. Each intermediary makes its decision from standardized message fields, not from knowledge of the product service.*
+
+The dotted edges are the point of the style. The CDN decides from the method and cache directives whether it may answer alone, the gateway decides from the method and status whether a failed attempt can be resent, and the origin decides from a precondition header whether a write is based on current state. None of these decisions requires parsing the body or sharing code with the service, and each becomes wrong the moment the service uses a method, status code, or directive against its standardized meaning.
+
+## The Constraints and the Properties They Induce
+
+Fielding defines REST by starting from no constraints and adding six, each inducing a property and each costing something. The useful way to read them is causally: statelessness is what makes messages self-describing, self-describing messages are what make caching and layering safe, and caching is what lets the Web absorb read load that no origin could serve.
+
+Client-server separation splits user-interface concerns from data storage, so each side can evolve and scale on its own. Statelessness requires that every request carry all the information needed to understand it; the server keeps no conversational context between requests. Session state lives in the client or in the request itself (a token, a cursor), the protocol-level version of the instance fungibility analyzed in [Stateful vs. Stateless Services](/distributed-systems/en/foundations/monoliths-to-distributed/stateful-vs-stateless/). The server still stores resource state durably; the constraint forbids only interaction state, the "where are we in this conversation" data that would pin a client to one instance.
+
+The cache constraint requires responses to label themselves as cacheable or not. The uniform interface is the central and most expensive constraint, with four parts: resources are identified by URIs; they are manipulated through representations, never through the server's storage format; messages are self-descriptive, so method, media type, and control headers suffice for any recipient to process them; and hypermedia is the engine of application state (HATEOAS), meaning clients discover next actions from links in representations rather than from out-of-band knowledge. The layered-system constraint restricts each component to seeing only the adjacent layer, so a CDN, gateway, or mesh proxy can be inserted without the client knowing. Code on demand, the optional sixth, is JavaScript on the Web and has no role in service APIs.
+
+| Constraint | Property it induces | What it costs | Common violation in practice |
+|---|---|---|---|
+| Client-server | Independent evolution of each side | A network hop for every interaction | Server-rendered state machines that assume one client type |
+| Stateless | Any instance can serve any request; failures lose only in-flight work | Context resent with every request; larger messages | Server-side sessions keyed by cookie, sticky routing as a correctness requirement |
+| Cache | Read load absorbed by intermediaries; lower latency | Bounded staleness; invalidation is not part of the protocol | No cache headers at all, or `no-store` everywhere |
+| Uniform interface | Generic intermediaries, independent evolvability | Operations forced into a fixed method set; less efficient than a purpose-built protocol | `POST /doAction` for everything, errors returned as `200` |
+| Layered system | Transparent proxies, gateways, CDNs, load balancers | Added latency per layer; each layer has its own timeouts | Clients that depend on reaching a specific backend |
+| Code on demand (optional) | Client extensibility | Reduced visibility and security | Not applicable to service APIs |
+
+### Hypermedia: The Constraint Most APIs Drop
+
+Most APIs called RESTful stop at what Leonard Richardson's maturity model calls "level 2": resources plus correct HTTP verbs, without hypermedia. Fielding wrote in 2008 that an API driven by out-of-band documentation of URI templates is not REST, because clients hard-code the server's URI structure and workflow and break when either changes. The counter-position, held by most API designers, is that machine clients do not explore: a service calls the endpoints its developers coded against, and links add bytes without removing the need for documentation.
+
+This handbook's position is that the deciding variable is who controls the client. When one team owns both sides, or clients are generated from an [OpenAPI contract](/distributed-systems/en/communication/api-gateway/openapi-swagger/), full hypermedia buys little. When clients are numerous, external, and long-lived, a narrow form pays for itself in two places: state-dependent actions (a `cancel` link present only while cancellation is allowed, so clients stop encoding the server's state machine) and server-issued URIs for pagination cursors and long-running operations, which let the server change routing and storage without a client release.
+
+## The HTTP Contract: Methods, Preconditions, and Status Codes
+
+HTTP semantics are defined in RFC 9110 (2022), with caching in RFC 9111 and the HTTP/1.1 wire format in RFC 9112. The contract that matters to a distributed system is not what a method "means" in English but what each party is permitted to do with it.
+
+A method is safe if the client does not request any state change by issuing it (`GET`, `HEAD`, `OPTIONS`); a crawler, prefetcher, or monitoring probe may therefore issue it freely. A method is idempotent if repeating it has the same intended effect as sending it once (the safe methods plus `PUT` and `DELETE`); a client or intermediary may therefore resend it after a connection failure without knowing whether the first attempt was processed, and RFC 9112 explicitly permits automatic retry of idempotent requests when a connection closes before the response arrives. `POST` and `PATCH` carry no such guarantee, which is why a timed-out `POST` leaves the client unable to tell success from failure; making it safely retryable needs an idempotency key, covered in [Idempotency and Safe HTTP Methods](/distributed-systems/en/communication/api-gateway/idempotency/). Only responses to `GET` and `HEAD` are cached by general-purpose caches in practice.
+
+`PUT` replaces the target resource's state with the enclosed representation. `PATCH` (RFC 5789) applies a set of changes in a separate media type: JSON Merge Patch (RFC 7396) sends a partial document in which `null` means "delete this member", concise but unable to set a null or modify one array element; JSON Patch (RFC 6902) sends an ordered list of operations, including a `test` operation that fails the whole patch unless a value matches. The `QUERY` method, standardized in RFC 10008 (June 2026), is safe and idempotent but carries a body, removing the old choice between a giant query string and a `POST` that caches and retry logic must treat as unsafe; proxy, CDN, and library support will lag the standard.
+
+### Optimistic Concurrency with Validators
+
+Two clients that each read a resource, modify their copy, and `PUT` the result will silently overwrite one another: the second write wins and the first change disappears with a `200 OK`. This is the lost-update anomaly, the HTTP-level version of the read-modify-write race analyzed in [Weak Isolation and MVCC](/distributed-systems/en/data-management/consistency-models/weak-isolation-mvcc/). HTTP's answer is the conditional request. Every response can carry a validator: an `ETag` (entity tag), an opaque string that the server changes whenever the representation changes, or a `Last-Modified` timestamp. A client that wants to write sends the validator back in `If-Match`, and the server applies the write only if the resource's current validator still matches; otherwise it returns `412 Precondition Failed` and changes nothing.
+
 ```mermaid
 sequenceDiagram
+    autonumber
     participant A as Client A
     participant B as Client B
-    participant S as Origin
- 
-    A->>S: GET /accounts/42
-    S-->>A: 200, ETag "v7"
-    B->>S: GET /accounts/42
-    S-->>B: 200, ETag "v7"
-    A->>S: PUT /accounts/42, If-Match "v7"
-    S-->>A: 200, ETag "v8"
-    B->>S: PUT /accounts/42, If-Match "v7"
+    participant S as Order service
+    A->>S: GET /orders/7
+    S-->>A: 200, ETag "v12"
+    B->>S: GET /orders/7
+    S-->>B: 200, ETag "v12"
+    A->>S: PUT /orders/7, If-Match "v12"
+    Note over S: compare and write in one transaction, v12 becomes v13
+    S-->>A: 200, ETag "v13"
+    B->>S: PUT /orders/7, If-Match "v12"
     S-->>B: 412 Precondition Failed
+    B->>S: GET /orders/7, If-None-Match "v12"
+    S-->>B: 200, ETag "v13", current state
 ```
-*If-Match turns the lost-update race into an explicit 412 that the client can resolve by re-reading and re-applying.*
- 
-Without `If-Match`, the second `PUT` wins and Client A's write vanishes with no error anywhere in the system — the classic lost update. If a resource is mutable and shared, a write endpoint that accepts an unconditional `PUT` is a data-loss vector; return `428 Precondition Required` to force clients to opt in.
- 
-:::danger
-Derive the `ETag` from a monotonic version counter or storage-engine revision, never from a hash of the serialized response bytes. Byte hashes change when the JSON encoder reorders map keys, when a field is added by a deploy, or when a floating-point value renders differently across library versions — producing spurious `412` storms during a rolling update, and, worse, identical ETags across genuinely different states if two representations happen to serialize identically after a field is dropped.
+*Optimistic concurrency with `If-Match`. Client B's stale write is rejected instead of overwriting Client A's change.*
+
+The note before step 6 is where correctness lives. The comparison and the write must be atomic at the origin, typically a `version` column checked in the `UPDATE ... WHERE id = ? AND version = ?` statement, with zero affected rows mapped to `412`. A service that reads the current ETag, compares it in application code, and then writes in a separate statement has reintroduced the race inside itself. Steps 9 and 10 show the recovery path: client B fetches the current state, conditionally, so that if nothing had changed it would receive a bodiless `304 Not Modified`, then reapplies its intent and retries. The retry is a semantic merge, not a blind resend, which is why the decision belongs to the client and not to a generic retry layer.
+
+Three details decide whether this works. `If-Match` uses strong comparison, so weak validators (prefixed `W/`, meaning "semantically equivalent" rather than byte-identical) never match; a framework that emits weak ETags by hashing a compressed body silently disables preconditions. `If-None-Match: *` turns a `PUT` into create-only, failing if any representation already exists, which gives a race-free "create if absent". And a server can refuse unconditional writes altogether with `428 Precondition Required` (RFC 6585), converting a client's forgotten header from silent data loss into an immediate error.
+
+Real systems use this shape. Amazon S3 added `If-None-Match` to `PutObject` in August 2024 and `If-Match` in November 2024, making object storage a compare-and-swap primitive. The Kubernetes API carries the version in the body: an update with a stale `metadata.resourceVersion` is rejected with `409 Conflict`, and controllers re-read and retry. GitHub's REST API does not count an authenticated `304` against the primary rate limit, which makes conditional polling nearly free.
+
+:::danger[Unconditional writes lose data without an error]
+A `PUT` or `PATCH` without a precondition on a resource that more than one actor can modify will eventually drop a concurrent change, and every request involved returns success. Nothing in logs or metrics shows it; it surfaces later as a customer report of a change that "did not stick". Require `If-Match` (or a version field) on every mutable resource with concurrent writers, and return `428` when it is missing.
 :::
- 
-### Status Codes and Machine-Readable Errors
- 
-Status codes are consumed by circuit breakers, retry middleware, and gateway metrics before any human sees them. Precision is operational, not pedantic:
- 
-- `400` malformed syntax versus `422` syntactically valid but semantically rejected. Retrying either is pointless; both must be classified as terminal by client middleware.
-- `401` missing or invalid credentials versus `403` valid identity, insufficient authority. Only `401` should trigger a token-refresh path.
-- `409` conflict with current resource state (duplicate creation) versus `412` failed precondition (stale validator). Different client remediations.
-- `429` and `503` must carry `Retry-After`. A client honoring `Retry-After` avoids the synchronized retry wave described in [Retry Storms and Metastable Failures](/distributed-systems/en/resilience/flow-control/retry-storms-metastable-failures/).
-- `502`/`503`/`504` are retryable; `500` generally is not, since it usually signals a deterministic bug that will reproduce.
-Error bodies should use `application/problem+json` (RFC 9457) with a stable machine-readable `type` URI. Free-form English strings in a `message` field become an accidental contract the moment a client starts substring-matching on them.
- 
-## Implementation: Conditional Read and Compare-and-Swap Write
- 
-```go
-package api
- 
-import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"log/slog"
-	"net/http"
-	"strconv"
-	"time"
-)
- 
-type Account struct {
-	ID      string `json:"id"`
-	Balance int64  `json:"balance_minor_units"`
-	version int64  // storage revision, never serialized to clients
-}
- 
-var (
-	ErrNotFound  = errors.New("account not found")
-	ErrConflict  = errors.New("version conflict")
-)
- 
-type Store interface {
-	Get(ctx context.Context, id string) (Account, error)
-	CompareAndSwap(ctx context.Context, a Account, expected int64) error
-}
- 
-// etagOf derives a strong validator from the storage revision, not from the
-// serialized bytes. Byte-derived ETags break on encoder or schema changes.
-func etagOf(a Account) string {
-	sum := sha256.Sum256([]byte(a.ID + ":" + strconv.FormatInt(a.version, 10)))
-	return `"` + hex.EncodeToString(sum[:8]) + `"`
-}
- 
-type Handler struct {
-	store   Store
-	timeout time.Duration // per-request upper bound, independent of client patience
-}
- 
-func (h *Handler) GetAccount(w http.ResponseWriter, r *http.Request) {
-	// Bound the downstream call. Without this, a slow store converts one
-	// stuck dependency into exhausted server goroutines and file descriptors.
-	ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
-	defer cancel()
- 
-	id := r.PathValue("id")
-	acc, err := h.store.Get(ctx, id)
-	switch {
-	case errors.Is(err, ErrNotFound):
-		problem(w, http.StatusNotFound, "account-not-found", "No account with that id.")
-		return
-	case errors.Is(err, context.DeadlineExceeded):
-		// 504 is retryable; 500 would tell the client not to bother.
-		w.Header().Set("Retry-After", "1")
-		problem(w, http.StatusGatewayTimeout, "upstream-timeout", "Store did not respond in time.")
-		return
-	case err != nil:
-		slog.ErrorContext(ctx, "store get failed", "id", id, "err", err)
-		problem(w, http.StatusInternalServerError, "internal", "Unexpected failure.")
-		return
-	}
- 
-	tag := etagOf(acc)
-	w.Header().Set("ETag", tag)
-	// private: per-user data must never enter a shared cache.
-	// must-revalidate: a stale balance is worse than an extra round trip.
-	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
- 
-	if match := r.Header.Get("If-None-Match"); match == tag {
-		w.WriteHeader(http.StatusNotModified) // no body, no serialization cost
-		return
-	}
- 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(acc); err != nil {
-		// Status is already written; only logging is possible here.
-		slog.ErrorContext(ctx, "response encode failed", "id", id, "err", err)
-	}
-}
- 
-func (h *Handler) PutAccount(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
-	defer cancel()
- 
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		// Force clients to opt into concurrency control instead of
-		// silently allowing last-write-wins on a shared resource.
-		problem(w, http.StatusPreconditionRequired, "if-match-required",
-			"Provide If-Match with the ETag from a prior GET.")
-		return
-	}
- 
-	var body Account
-	// Cap the body to keep a hostile or buggy client from driving OOM.
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&body); err != nil {
-		problem(w, http.StatusBadRequest, "malformed-body", "Body is not valid Account JSON.")
-		return
-	}
- 
-	id := r.PathValue("id")
-	current, err := h.store.Get(ctx, id)
-	if err != nil {
-		problem(w, http.StatusNotFound, "account-not-found", "No account with that id.")
-		return
-	}
-	if etagOf(current) != ifMatch {
-		problem(w, http.StatusPreconditionFailed, "stale-etag",
-			"Resource changed since your last read. Re-read and retry.")
-		return
-	}
- 
-	body.ID = id
-	body.version = current.version + 1
-	if err := h.store.CompareAndSwap(ctx, body, current.version); err != nil {
-		if errors.Is(err, ErrConflict) {
-			// Lost the race between the validator check and the write.
-			problem(w, http.StatusPreconditionFailed, "stale-etag", "Concurrent update won.")
-			return
-		}
-		slog.ErrorContext(ctx, "cas failed", "id", id, "err", err)
-		problem(w, http.StatusInternalServerError, "internal", "Unexpected failure.")
-		return
-	}
- 
-	w.Header().Set("ETag", etagOf(body))
-	w.WriteHeader(http.StatusOK)
-}
- 
-func problem(w http.ResponseWriter, status int, kind, detail string) {
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"type":   "https://api.example.com/problems/" + kind,
-		"status": status,
-		"detail": detail,
-	})
-}
+
+### Status Codes as Control Signals
+
+Status codes are read by machines before people: retry middleware, circuit breakers, gateways, and dashboards classify them by class and act. The classification that matters operationally is not "success or error" but "who should change behavior, and how".
+
+A `4xx` says the request, as sent, will not succeed; resending it unchanged is wasted work, with three deliberate exceptions. `408 Request Timeout` and `429 Too Many Requests` mean "the same request may succeed later", and `429` and `503 Service Unavailable` may carry `Retry-After` to say when; [rate limiting at the gateway](/distributed-systems/en/communication/api-gateway/throttling-rate-limiting/) depends on clients honoring it. `409 Conflict` and `412` mean "re-read and decide", as above. A `5xx` says the server failed, but the subclasses reveal different things about the outcome. `503` returned before processing (load shedding, an open circuit) means nothing happened; `500` may follow a partial state change; `502 Bad Gateway` and `504 Gateway Timeout` come from an intermediary and mean only that it lost contact with the origin, which may still be processing or may have committed. For a non-idempotent request that ambiguity is the root of the duplicate-create failure below.
+
+Error bodies should use a standard format so that clients can branch on a stable type rather than parse messages. RFC 9457 (2023, obsoleting RFC 7807) defines Problem Details, a JSON object with media type `application/problem+json` and members `type` (a URI identifying the problem class), `title`, `status`, `detail`, and `instance`, extensible with problem-specific members.
+
+```text
+PUT /orders/7 HTTP/1.1
+If-Match: "v12"
+Content-Type: application/json
+
+HTTP/1.1 412 Precondition Failed
+Content-Type: application/problem+json
+ETag: "v13"
+
+{"type": "https://api.example.com/problems/stale-version",
+ "title": "Order was modified since it was read",
+ "status": 412,
+ "detail": "Expected version v12, current version is v13.",
+ "instance": "/orders/7"}
 ```
- 
-The read-then-CAS sequence still contains a race, which is why `CompareAndSwap` takes the expected version rather than trusting the earlier `Get`. The validator check is an optimization that fails fast and produces a clean `412`; the storage-level compare-and-swap is the actual correctness boundary.
- 
-```shell
-# Read, capture the validator, then attempt a conditional write.
-ETAG=$(curl -sS -D - -o /dev/null https://api.example.com/accounts/42 \
-  | awk 'tolower($1) == "etag:" { print $2 }' | tr -d '\r')
- 
-curl -sS -i -X PUT https://api.example.com/accounts/42 \
-  -H "Content-Type: application/json" \
-  -H "If-Match: ${ETAG}" \
-  --data '{"id":"42","balance_minor_units":125000}'
-# Expect 200 with a new ETag, or 412 if another writer committed first.
+
+The response carries the current `ETag`, and the problem `type` stays stable when the message is reworded. Returning `200` with an error object defeats every layer in the opening diagram: caches may store it, retry middleware treats it as success, and dashboards stay green during an outage.
+
+## Caching as a Protocol: Freshness, Validation, and Shared Caches
+
+HTTP caching is a two-step protocol: freshness decides whether a stored response may be used without contacting the origin; validation decides whether a stale one can be reused after a cheap check. `Cache-Control: max-age=60` makes a response fresh for 60 seconds in any cache; `s-maxage` overrides it for shared caches such as CDNs and reverse proxies only; `private` forbids shared caches from storing it; `no-store` forbids storage anywhere. `no-cache` is commonly misread: it permits storage but requires validation before every reuse. RFC 5861 adds `stale-while-revalidate=N`, serving a stale response for up to N seconds while refreshing in the background, and `stale-if-error=N`, serving stale content when the origin fails, a built-in fallback for read paths.
+
+Two rules surprise teams most often. The first is `Vary`: a cache keys a stored response by method and URI only, so if the representation differs by `Accept`, `Accept-Language`, or `Accept-Encoding`, the response must list those headers in `Vary` or a cache will serve one client's variant to another. The second is heuristic freshness: a response with no explicit freshness information but with a `Last-Modified` header and a heuristically cacheable status (`200`, `301`, `404`, and `410` among them) may be cached for a period the cache chooses, and RFC 9111 suggests 10% of the time since last modification. A document last modified 30 days ago may be served for about three days by a cache nobody configured, so every response should carry an explicit `Cache-Control`.
+
+Shared caches add a third rule for authenticated traffic: RFC 9111 forbids a shared cache from reusing a response to a request that carried an `Authorization` header unless the response explicitly allows it with `public`, `s-maxage`, or `must-revalidate`. This protects bearer-token APIs by default, but not cookie-authenticated pages and not responses to which someone added `s-maxage` to "speed things up". Invalidation is outside the protocol entirely: HTTP has no message that tells downstream caches a resource changed, which is why purge APIs are vendor-specific and why choosing TTLs is the real design decision, covered in [Cache Invalidation](/distributed-systems/en/data-management/distributed-caching/cache-invalidation/).
+
+```text
+# Product page: shared caches hold 60 s, serve stale while refreshing and during origin errors
+Cache-Control: public, max-age=10, s-maxage=60, stale-while-revalidate=30, stale-if-error=300
+ETag: "p42-v881"
+Vary: Accept-Encoding
+---
+# Account page: never in a shared cache, browsers must revalidate
+Cache-Control: private, no-cache
+ETag: "acct-91-v17"
+---
+# Payment confirmation: no copy anywhere
+Cache-Control: no-store
 ```
- 
-## Failure Modes and Operational Pitfalls
- 
-**Lost updates through unconditional writes.** Symptom: user-reported "my change disappeared" with no error in any log, because both writes returned `200`. Detection is the hard part — nothing is anomalous in metrics. Instrument the ratio of `PUT`/`PATCH` requests carrying `If-Match`; anything below 100% on a mutable shared resource is a latent data-loss path.
- 
-**Chattiness and the client-side N+1.** A normalized resource model forces the client into `GET /orders/91` followed by one `GET /products/{id}` per line item. Over a high-RTT mobile link, 30 sequential round trips at 120 ms each is 3.6 s of pure latency. Mitigations, in order of preference: connection multiplexing so the calls are concurrent rather than serial (see [HTTP/2 and HTTP/3](/distributed-systems/en/communication/synchronous-protocols/http2-http3-quic/)), a purpose-built composite resource, a [BFF](/distributed-systems/en/communication/api-gateway/bff-pattern/), or a query language such as [GraphQL](/distributed-systems/en/communication/synchronous-protocols/graphql/). Adding an `?expand=items.product` parameter is the common compromise, at the cost of a combinatorial cache-key explosion.
- 
-**Cache-key explosion and poisoning.** Every distinct query-parameter permutation is a distinct cache entry. Unbounded parameters — free-text search, arbitrary sort keys, client-generated correlation values echoed into the URI — drive hit rates to zero and can be used to evict hot entries deliberately. Normalize and allowlist query parameters at the gateway, and strip parameters that do not affect the representation. The corresponding cache-invalidation strategies are covered in [Cache Invalidation](/distributed-systems/en/data-management/distributed-caching/cache-invalidation/).
- 
-**`200 OK` wrapping an error.** Returning `{"success": false, "error": "..."}` with a `200` status defeats every intermediary: circuit breakers see a healthy dependency, retry middleware does not retry, gateway error-rate SLOs read zero during a full outage. The failure is invisible until customers complain.
- 
-**Timeout asymmetry.** The client times out at 2 s, the server keeps working for 30 s. The client retries, the server now processes the same non-idempotent operation twice, and load amplifies exactly when the system is already degraded. Server-side deadlines must be propagated and enforced, and must be shorter than the client's patience budget at every hop.
- 
-**Trailing-slash and case inconsistency.** `/accounts/42` and `/accounts/42/` are distinct URIs, hence distinct cache entries with independent invalidation. Pick one form and issue `301` for the other at the edge.
- 
-**`DELETE` retry ambiguity.** The first `DELETE` succeeds, the response is lost, the retry returns `404`. Client libraries that treat `404` as failure will report a spurious error on a successful delete. Document `404` on `DELETE` as success, or return `204` for both cases if the resource is tombstoned.
- 
-## When to Use REST, and When Not
- 
-| Dimension | REST/HTTP | gRPC | GraphQL | When to prefer REST |
-|-----------|-----------|------|---------|---------------------|
-| Payload efficiency | JSON, verbose | Protobuf, compact binary | JSON, verbose | Payloads are small or gzip-dominated; human debuggability outweighs bytes |
-| Intermediary caching | Native, at every layer | None without custom work | Effectively none for `POST` queries | Read-heavy traffic with high cache-hit potential |
-| Client diversity | Any HTTP client, including `curl` | Requires generated stubs | Requires a client library | Public APIs, unknown or unmanaged consumers |
-| Schema enforcement | External (OpenAPI), advisory | Compiler-enforced IDL | Enforced by schema | Loose coupling is desired over strict contracts |
-| Streaming | SSE or WebSocket alongside | First-class bidirectional | Subscriptions | No streaming requirement |
-| Fetch shaping | Fixed per endpoint | Fixed per method | Client-specified | Access patterns are stable and few |
- 
-Use REST when consumers are heterogeneous or external, when read traffic dominates and can be cached at the edge, when operability through standard tooling (proxies, WAFs, curl, browser devtools) has real value, and when the resource model maps cleanly onto entities with stable identity.
- 
-Prefer alternatives when the workload is high-frequency internal service-to-service RPC where serialization cost and connection efficiency dominate (see [gRPC and Protocol Buffers](/distributed-systems/en/communication/synchronous-protocols/grpc-protocol-buffers/)); when clients need to shape responses across many entity graphs; when the interaction is inherently a long-lived stream rather than a request-response pair; or when the operation is a genuine procedure call — "recalculate risk exposure for portfolio 7 using the 14:00 snapshot" — that no amount of noun-shaping turns into a resource without distortion.
+
+The product page gives browsers a short freshness window and CDNs a longer one, because a CDN can be purged and a browser cannot. The account page lives only in the user's browser and only with validation, so a returning user pays a `304` instead of a full body.
+
+### Worked Example: How TTL and Tiering Bound Origin Load
+
+Assume a catalog API serves 50,000 product reads per second through 40 CDN points of presence (PoPs). 10,000 hot products receive 90% of reads, spread evenly across PoPs and products; the remaining 5,000 reads per second are spread over 190,000 cold products and almost always miss. All numbers are illustrative.
+
+Each hot product therefore receives `45,000 / (10,000 * 40) = 0.1125` requests per second at each PoP, one every 8.9 seconds. A cache entry with TTL `T` turns a stream of rate `λ` into one origin fetch per cycle of length `T + 1/λ` (the fresh window, then the wait until the next request finds it stale), so origin requests per entry are `λ / (1 + λT)`. With `T = 60` s that is `0.1125 / 7.75`, and across 400,000 product-PoP pairs about 5,800 origin requests per second for the hot set: an 87% reduction, plus the 5,000 cold misses. The reduction is weaker than intuition suggests because 40 independent caches each fetch every hot key separately.
+
+Adding a shield tier, one regional cache that all PoPs consult on a miss, changes the arithmetic: the shield sees each hot product at 4.5 requests per second, so with the same 60 s TTL the origin receives `10,000 * 4.5 / (1 + 4.5 * 60)`, about 166 requests per second for the hot set. The fan-in collapses from 40 caches to one, and the origin load for popular content is bounded by roughly the number of hot keys divided by the TTL.
+
+```mermaid
+xychart-beta
+    title "Origin requests/s for the hot set vs. TTL (illustrative model)"
+    x-axis "TTL in seconds" [1, 5, 15, 30, 60, 300]
+    y-axis "Origin requests per second" 0 --> 46000
+    line [40449, 28800, 16744, 10286, 5806, 1295]
+    line [8182, 1915, 657, 331, 166, 33]
+```
+*Upper line: 40 independent PoPs. Lower line: the same PoPs behind one shield cache. Hot-set traffic of 45,000 requests/s, evenly spread; model `λ / (1 + λT)` per cache entry.*
+
+The upper curve shows that short TTLs barely help when per-PoP traffic per key is sparse: at 5 seconds, most requests arrive after the entry expired. The lower curve shows why tiering matters more than TTL tuning for read-heavy APIs. Validation reduces cost further: if each origin fetch is a conditional `GET` and the product changed in only 5% of cases, 95% of fetches return a `304` of a few hundred bytes instead of a 20 KB body, so origin egress drops by about 95% even where request count does not. The model ignores the moment of expiry itself; when a very hot key expires at many caches at once, the simultaneous refetch is a stampede, covered in [Cache Stampede](/distributed-systems/en/data-management/distributed-caching/cache-stampede/), and `stale-while-revalidate` is the HTTP-native mitigation.
+
+## Resource Design: Granularity, Long-Running Work, and Pagination
+
+A resource is any concept worth naming, not a database table. Designing them well is mostly about three pressures: round trips, operations that do not complete within one request, and collections too large to return at once.
+
+Granularity sets round-trip count. A client that lists 50 orders and then fetches each order's customer makes 51 requests. With 1 ms network round trip and 2 ms server time (illustrative), that is 153 ms sequentially; with six parallel HTTP/1.1 connections, nine waves take about 30 ms; with HTTP/2 multiplexing, close to one round trip, but the server still executes 51 requests. The fixes are coarser representations, an expansion parameter, or an aggregation layer such as a [Backend for Frontend](/distributed-systems/en/communication/api-gateway/bff-pattern/) or [API composition](/distributed-systems/en/microservice-patterns/data-management-patterns/api-composition/). When every client needs a different shape, that pressure is the problem [GraphQL](/distributed-systems/en/communication/synchronous-protocols/graphql/) was built for. Operations beyond create, read, replace, and delete become resources too: `POST /orders/7/cancellation` creates a cancellation with its own state and audit trail, instead of a `PATCH` that hides a workflow behind a field write.
+
+### Long-Running Operations as Resources
+
+Work that outlasts a sensible request timeout (a report, a bulk import, a provisioning job) should not hold a connection open. The server accepts the request with `202 Accepted` and a `Location` header naming a new operation resource; the client polls it, or subscribes to a callback, and finds the result through a link when it is done. Google's API Improvement Proposals standardize this as a long-running operation resource; the principle is the same everywhere.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: POST /exports returns 202 and Location
+    Pending --> Running: worker claims job
+    Running --> Running: GET returns 200, progress, Retry-After
+    Running --> Succeeded: result written
+    Running --> Failed: error recorded as problem details
+    Pending --> Cancelled: POST .../cancellation
+    Running --> Cancelled: POST .../cancellation
+    Succeeded --> [*]: representation links to result
+    Failed --> [*]
+    Cancelled --> [*]
+```
+*Lifecycle of an operation resource. Each state is visible to the client through `GET` on the URI returned in `Location`.*
+
+The state machine is what makes the pattern robust. Because the operation is a resource with a URI, a client that crashes mid-poll can resume from the stored URI; a timeout no longer means "unknown outcome" but "check again"; and `Retry-After` on each poll lets the server pace clients instead of absorbing a fixed polling rate from all of them. The initial `POST` remains non-idempotent, so it still needs an idempotency key, or two retried submissions create two jobs. Terminal states should be retained for a documented period, because a client that polls after the operation resource has been deleted gets a `404` it cannot distinguish from "never existed".
+
+### Pagination That Survives Concurrent Writes
+
+Offset pagination (`?offset=500000&limit=50`) is simple and wrong at scale in two ways. Cost: the database must produce and discard every skipped row, so page 10,001 of a 50-row listing reads 500,050 rows to return 50, and deep pages degrade linearly. Correctness: if a row is inserted before the current position between two page requests, every later row shifts by one and the client sees one row twice; if a row is deleted, the client skips one. Cursor (keyset) pagination returns an opaque `next` token encoding the sort key of the last row; the next page queries `WHERE (created_at, id) > (?, ?) ORDER BY created_at, id LIMIT 50`, an index seek whose cost is independent of depth and which concurrent writes cannot shift. The sort must end with a unique tiebreaker, or rows with equal keys at a page boundary are lost, and an opaque, ideally signed, token lets the server change its encoding later.
+
+## Failure Modes in HTTP APIs
+
+The failures below share one property: each comes from a party acting correctly on a contract that another party violated or misunderstood.
+
+### Duplicate Creates Behind a Gateway Timeout
+
+Trigger: a non-idempotent `POST` takes longer than an intermediary's timeout, so the intermediary returns `504` while the origin is still working; the client, seeing a `5xx`, retries. Symptoms: duplicate orders, payments, or jobs, clustered during latency spikes, each with a successful origin log entry.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant G as Gateway, timeout 5 s
+    participant S as Order service
+    participant D as Database
+    C->>G: POST /orders
+    G->>S: POST /orders
+    S->>D: INSERT order, slow lock wait
+    rect rgb(70, 40, 40)
+    Note over G: 5 s elapse with no response
+    G-->>C: 504 Gateway Timeout
+    C->>G: Retry POST /orders
+    G->>S: POST /orders
+    end
+    D-->>S: First insert commits at 6.2 s
+    S-->>G: 201 Created, response discarded
+    S->>D: Second INSERT commits
+    S-->>G: 201 Created
+    G-->>C: 201 Created, client believes one order exists
+```
+*An illustrative duplicate create. The gateway's timeout is shorter than the origin's worst-case latency, and the client treats `504` as "nothing happened".*
+
+Step 4 is the misunderstanding: `504` means the gateway stopped waiting, not that the order was not created. The first insert commits at step 7, after the client has already retried, and its response is discarded at step 8 because the gateway has closed that exchange. Detection: origin `201` counts exceeding client-observed successes, gateway `504` rate correlated with duplicate business keys, and origin request duration exceeding the gateway timeout. Mitigation has two layers. Make the `POST` idempotent with a client-supplied key so the second attempt returns the first result. Align timeouts so each hop's budget is shorter than the one in front of it, with the origin cancelling work when its deadline passes, as described in [Timeouts](/distributed-systems/en/resilience/protection-patterns/timeouts/). Recovery requires deduplicating by business key after the fact, which is only possible if such a key exists.
+
+### Keep-Alive Races on Pooled Connections
+
+HTTP/1.1 clients reuse idle pooled connections. If the server closes an idle connection at the moment the client sends on it, the request is lost and the client sees a reset, or a load balancer returns `502`. The classic configuration is a backend whose keep-alive timeout is shorter than its load balancer's idle timeout: Node.js's HTTP server defaults to 5 seconds of keep-alive, while an AWS Application Load Balancer defaults to a 60-second idle timeout, so the load balancer periodically sends a request on a connection the backend is closing. Symptoms: a low, steady rate of `502` or resets, uncorrelated with load and absent from backend logs. Detection: load balancer `502` counts with no matching backend error, concentrated on the first request after an idle gap. Mitigation: the side that opens connections must have the shorter idle timeout, so it always closes first. Clients may resend idempotent requests on a reset connection, which is why the race is harmless for `GET` and dangerous for `POST`.
+
+### Personalized Responses in a Shared Cache
+
+Trigger: a response that depends on the user is stored by a shared cache because it lacked `private` or `no-store`, carried a directive that overrides the `Authorization` protection, or was keyed without the header that distinguishes users. Symptoms: users see each other's data, usually after a CDN or cache configuration change. The best-documented case is Steam on 25 December 2015: during a denial-of-service attack that raised store traffic by 2,000%, a second caching configuration, deployed with Valve's web caching partner in response to the attack, incorrectly cached web traffic for authenticated users, and Valve later stated that about 34,000 users had pages, including billing addresses and partial payment details, shown to others before the store was shut down. Prevention is mechanical: explicit `Cache-Control` on every response, `private` or `no-store` on anything personalized, and a test that requests one URI with two identities through the real cache path and compares responses.
+
+:::caution[Cache configuration changes deserve the rigor of schema changes]
+A CDN rule that caches "everything under `/api/`" for performance turns every missing `Cache-Control` header into a potential data leak. Treat cache rules as code, review them against the endpoints they match, and make the origin's headers, not the CDN's defaults, the source of truth.
+:::
+
+### Summary of Failure Signatures
+
+| Failure | Symptom from outside | Detection signal | Mitigation |
+|---|---|---|---|
+| Lost update | Changes "do not stick"; no errors | Concurrent writes to one resource in access logs; absent `If-Match` | `If-Match` or version field, `428` on unconditional writes |
+| Duplicate create | Duplicate business records during latency spikes | Origin `201` count above client successes; `504` correlated with duplicates | Idempotency keys; timeout budgets shrinking toward the origin |
+| Keep-alive race | Low steady `502`/reset rate | LB `502` with no backend log entry | Backend idle timeout above LB idle timeout |
+| Shared-cache leak | Users see others' data | Same URI, different identities, identical cached body | `private`/`no-store`, correct `Vary`, cache-path tests |
+| Heuristic staleness | Old data served with no TTL configured | `Age` header on responses lacking `Cache-Control` | Explicit `Cache-Control` everywhere |
+| Pagination drift | Duplicate or missing items across pages | Item counts differ from total; repeated IDs | Keyset cursor with unique tiebreaker |
+| Status-code misuse | Retries on `400`; green dashboards during outages | `2xx` bodies containing error objects; retry rate on `4xx` | Correct status classes, RFC 9457 bodies |
+
+Misused status codes turn local errors into load: a client library that retries every non-`2xx` will resend `400` and `401` requests indefinitely, and a service that returns `500` for validation errors invites exactly that, a path into [retry storms](/distributed-systems/en/resilience/flow-control/retry-storms-metastable-failures/). Retry policy itself belongs to [Retry with Exponential Backoff](/distributed-systems/en/resilience/protection-patterns/retry-exponential-backoff/); the API's job is to make the status code tell the truth.
+
+## Choosing REST and Its Alternatives
+
+REST is one of several interface styles for synchronous calls, and each optimizes for a different relationship between client and server.
+
+| Style | Contract and encoding | Strengths | Weaknesses | When to prefer |
+|---|---|---|---|---|
+| REST over HTTP | Resources, standard methods, media types, usually JSON | Generic intermediaries, HTTP caching, conditional requests, universal tooling | Verbose, chatty for composite reads, no native streaming | Public and partner APIs, read-heavy cacheable data, independently evolving clients |
+| [gRPC](/distributed-systems/en/communication/synchronous-protocols/grpc-protocol-buffers/) | Service methods in Protobuf over HTTP/2 | Compact encoding, generated clients, deadlines, streaming | Opaque to HTTP caches, needs HTTP/2 end to end, weak browser support | Internal service-to-service calls with high rate and strict latency budgets |
+| [GraphQL](/distributed-systems/en/communication/synchronous-protocols/graphql/) | Typed schema, client-specified queries over one endpoint | One round trip per screen, client-shaped responses | HTTP caching largely lost, query cost control needed | Many client types aggregating data from many backends |
+| [WebSocket and SSE](/distributed-systems/en/communication/synchronous-protocols/websocket-sse/) | Long-lived connection, application-defined frames | Server push, low per-message overhead | Stateful connections, harder load balancing | Live updates and bidirectional interaction |
+| [Asynchronous messaging](/distributed-systems/en/communication/async-messaging/message-queue-vs-event-streaming/) | Messages or events through a broker | Temporal decoupling, buffering, fan-out | No immediate answer, eventual consistency | Work that need not complete within the caller's request |
+
+Use REST when the interface crosses an organizational boundary, when clients are numerous or external and upgrade on their own schedule, when reads dominate and are cacheable, and when operability with standard tooling (curl, browsers, CDNs, gateways, WAFs) outweighs per-call efficiency. It is also the right default for resources with concurrent writers, because conditional requests give a standard optimistic-concurrency protocol that every client can implement.
+
+Do not use REST, or not only REST, when calls are high-rate and internal with a strict latency budget, where gRPC's encoding and deadline propagation are worth losing HTTP-cache visibility; when the operation is a stream of events rather than a document; when a client needs one aggregated view of many resources and the round trips cannot be hidden behind a BFF; or when the interaction is inherently a procedure call with no resource to name, where a resource model produces `POST /doAction` endpoints that inherit HTTP's cost without its benefits. REST's flexibility is no reason to skip a written contract: a resource API without an OpenAPI description and [consumer-driven contract tests](/distributed-systems/en/communication/api-gateway/contract-testing/) drifts as quickly as any other.
+
+:::tip[Spend design effort on the parts intermediaries read]
+URI naming is the most argued and least consequential part of REST design. Correct method choice, explicit `Cache-Control`, strong ETags with `If-Match`, honest status codes, and opaque server-issued URIs for cursors and operations decide whether caches, gateways, and retry layers help the API or corrupt it.
+:::
+
+## Further Reading
+
+- Roy T. Fielding, *Architectural Styles and the Design of Network-based Software Architectures*, PhD dissertation, University of California, Irvine, 2000.
+- Roy T. Fielding and Richard N. Taylor, *Principled Design of the Modern Web Architecture*, ACM Transactions on Internet Technology, 2002.
+- R. Fielding, M. Nottingham, and J. Reschke (eds.), *RFC 9110: HTTP Semantics*, IETF, 2022.
+- R. Fielding, M. Nottingham, and J. Reschke (eds.), *RFC 9111: HTTP Caching*, IETF, 2022.
+- M. Nottingham, E. Wilde, and S. Dalal, *RFC 9457: Problem Details for HTTP APIs*, IETF, 2023.
+- Roy T. Fielding, *REST APIs must be hypertext-driven*, Untangled (blog), 2008.

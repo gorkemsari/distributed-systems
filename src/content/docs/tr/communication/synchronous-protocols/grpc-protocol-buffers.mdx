@@ -1,329 +1,325 @@
 ---
-title: "2.1.3. gRPC & Protocol Buffers: Yüksek Performanslı RPC"
-description: "Protobuf wire kodlaması ve uyumluluk kuralları, HTTP/2 üzerinde gRPC mesaj çerçeveleme ve trailer tabanlı status protokolü, deadline yayılımı, channel yük dengeleme ve yalnızca üretim trafiğinde ortaya çıkan hata modları."
-lastUpdated: 2026-08-01
-sidebar:
-  order: 3
+title: "gRPC & Protocol Buffers: Yüksek Performanslı RPC"
+description: "Protocol Buffers'ın mesajları nasıl kodladığı ve şema değişikliklerinde uyumluluğu nasıl koruduğu, gRPC'nin çağrıları deadline, status trailer'ları ve iptal ile HTTP/2 stream'lerine nasıl eşlediği, channel'ların nasıl bağlanıp yük dengelediği ve bu yığının production'da ürettiği hata modları."
+lastUpdated: 2026-11-04
 ---
 
-gRPC size kompakt binary kodlama, derleyicinin zorladığı bir sözleşme, birinci sınıf deadline'lar ve çift yönlü streaming kazandırır. Karşılığında insan tarafından okunabilir trafiği, ara katman caching'ini, proxy olmadan tarayıcıdan erişilebilirliği ve herhangi biri çağrı yapabilmeden önce her tüketici dili için stub üretmek zorunda olan bir build hattını maliyet olarak yazar. Kodlama kazancı gerçektir ama genellikle beklenenden küçüktür — yapılandırılmış veride JSON'a göre kabaca %30-50 daha küçük payload ve 5-10 kat daha hızlı serileştirme — buna karşılık migrasyonun bedelini asıl ödeyen şey, zorunlu kılınan deadline'lar ve tipli sözleşmelerden gelen operasyonel kazançtır.
- 
-**gRPC**, pratikte sıkı biçimde bağlı olan üç ayrılabilir parçadan oluşan bir RPC çatısıdır: arayüz tanım dili (**IDL**) ve wire formatı olarak Protocol Buffers, transport olarak HTTP/2 ve HTTP trailer'larında taşınan bir status protokolü.
- 
-## Protobuf Wire Formatı: Sözleşme Alan Numaralarıdır
- 
-Wire üzerindeki bir protobuf mesajı, düz bir anahtar-değer çiftleri dizisidir. Anahtar, `(field_number << 3) | wire_type` değerine eşit bir varint'tir. Alan *adları* wire'da hiç görünmez; yalnızca numaralar görünür.
- 
-| Wire type | Değer | Kullanan tipler |
-|-----------|-------|-----------------|
-| VARINT | 0 | `int32`, `int64`, `uint32`, `uint64`, `sint32`, `sint64`, `bool`, `enum` |
-| I64 | 1 | `fixed64`, `sfixed64`, `double` |
-| LEN | 2 | `string`, `bytes`, gömülü mesajlar, packed repeated alanlar |
-| I32 | 5 | `fixed32`, `sfixed32`, `float` |
- 
-**Varint** kodlaması bayt başına 7 bit kullanır ve en yüksek biti devam bayrağı olarak ayırır; dolayısıyla küçük sayılar bir bayt, 2^28 üzerindeki değerler beş bayt tutar. Bunun doğrudan bir tasarım sonucu vardır: negatif bir `int32`, 64 bite işaret genişletmesiyle taşınır ve her zaman 10 bayt harcar. Negatif olabilen her alan için, küçük mutlak değerli negatifleri küçük varint'lere eşleyen **ZigZag** kodlamasını (`(n << 1) ^ (n >> 31)`) uygulayan `sint32`/`sint64` kullanın.
- 
-1-15 arası alan numaraları tag'ini tek baytta kodlar; 16-2047 iki bayt ister. Düşük numaraları sıcak yoldaki her mesajda bulunan alanlara verin ve nadiren set edilen alanlara geçmeden önce boşluk bırakın.
- 
-`repeated` skaler alanlar proto3'te varsayılan olarak **packed**'tir: eleman başına tag yerine tüm değerleri içeren tek bir LEN önekli blok. 1000 küçük değerli bir `repeated int32` packed halde kabaca 1000 bayt, packed olmadan 2000 bayt tutar.
- 
-### Gerçekten Bağlayıcı Olan Uyumluluk Kuralları
- 
-Wire formatında şema müzakeresi yoktur. Tanımadığı bir alan numarasıyla karşılaşan okuyucu onu bir unknown-fields kümesinde saklar ve serileştirirken yeniden yayar; proxy'leyip ileten servislerin veri kaybetmemesini sağlayan mekanizma budur. Neyin güvenli olduğunu da bu mekanizma tanımlar:
- 
-- **Güvenli:** yeni bir numarayla alan eklemek; numarasını ve adını `reserved` yapmak *koşuluyla* alan kaldırmak; alan adını değiştirmek (adlar üretilen koda özeldir); aralık içindeki değerler için `int32`, `uint32`, `int64`, `uint64` ve `bool` arasında dönüşüm; enum'a değer eklemek.
-- **Güvensiz:** emekliye ayrılmış bir alan numarasını yeniden kullanmak — eski okuyucular yeni veriyi eski alanın tipiyle çözer ve sessizce çöp üretir; bir alanın wire type'ını değiştirmek; alanı `oneof` içine almak veya dışına çıkarmak; skaler olmayan bir tip için packed ve unpacked temsiller arasında geçiş yapmak.
-:::danger
-Bir alan numarasını, alanı kaldırdıktan yıllar sonra bile asla yeniden kullanmayın. Uzun ömürlü tek bir istemci, bir Kafka topic'inde kalıcılaşmış bir mesaj veya nesne depolamadaki bir snapshot, 7 numarayı eski anlamıyla çözer ve hiçbir yerde hata üretilmez. Her zaman `reserved 7;` ve `reserved "old_field_name";` yazın; böylece derleyici yeniden kullanımı build zamanında reddeder — ekip değişimlerinden sağ çıkan tek zorlama budur.
-:::
- 
-Sessiz bozulmanın ikinci kaynağı enum'lardır. Proto3 sıfır değerinin belirtilmemiş bir sentinel olmasını zorunlu kılar (`STATUS_UNSPECIFIED = 0`) ve enum'lar açıktır: tanımadığı bir değeri alan okuyucu numarayı korur ama adlandıramaz, dolayısıyla default dalı olmayan her `switch` onu yanlış işler. Bilinmeyen enum değerlerini sıfır değeri gibi değil, açık bir reddetme yolu olarak ele alın.
- 
-### Presence: Proto3 Tuzağı
- 
-Proto3 başlangıçta skalerler için alan varlığını (presence) kaldırdı: `0`, `""` veya `false` olarak set edilmiş bir alan, wire üzerinde hiç set edilmemiş bir alandan ayırt edilemez, çünkü varsayılan değerler serileştirilmez. Bu, tam yer değiştirme yazmaları için doğru, kısmi güncellemeler için felakettir. Bir güncelleme RPC'sinde `{balance: 0}` gönderen istemci, `balance` alanını tamamen atlayan bir mesajla birebir aynı baytları üretir.
- 
-İki çözüm var. `optional` anahtar kelimesi (protobuf 3.15'te geri getirildi) sentetik bir `oneof` üzerinden açık presence üretir ve size `has_balance()` verir. Alternatif olarak, çağıranın değiştirmeyi amaçladığı alanları listeleyen bir `google.protobuf.FieldMask` kullanın — `Update*` RPC'lerinin konvansiyonu budur ve niyeti çıkarsanan değil açıkça belirtilen bir şey haline getirir.
- 
-## Wire Üzerinde gRPC Protokolü
- 
-Unary bir çağrı tam olarak bir HTTP/2 stream'idir. Metot, `:path` içinde `/package.Service/Method` olarak kodlanır; URL yapısı, query string veya HTTP fiil semantiği yoktur.
- 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant S as Server
- 
-    C->>S: HEADERS: :path /pay.v1.Payments/Charge, grpc-timeout 2S
-    C->>S: DATA: [flag][len][protobuf bytes], END_STREAM
-    S-->>C: HEADERS: :status 200, content-type application/grpc
-    S-->>C: DATA: [flag][len][protobuf bytes]
-    S-->>C: TRAILERS: grpc-status 0, END_STREAM
-```
-*RPC sonucu HTTP status'ta değil trailer'larda yaşar: grpc-status 13 taşıyan transport düzeyindeki bir 200, başarısız bir çağrıdır.*
- 
-Her mesaj 5 baytlık bir başlıkla önekelenir: bir baytlık sıkıştırma bayrağı artı 4 baytlık big-endian uzunluk. Bu çerçeveleme, gRPC'nin uçtan uca tam bir HTTP/2 uygulaması gerektirmesinin ve gövdeleri tamponlayan ya da yeniden yazan her ara katmanın onu bozmasının nedenidir. Alttaki stream mekaniği, flow-control pencereleri ve `GOAWAY` semantiği [HTTP/2 ve HTTP/3](/distributed-systems/tr/communication/synchronous-protocols/http2-http3-quic/) sayfasında ele alınır.
- 
-**Trailer** gereksinimi en keskin operasyonel kısıttır. `grpc-status` ve `grpc-message` gövdeden sonra gelir, dolayısıyla yoldaki her proxy HTTP/2 trailer'larını desteklemek zorundadır. Hiç mesaj yaymadan başarısız olan sunucu *trailers-only* bir yanıt gönderir: hem `:status: 200` hem hata kodunu taşıyan, `END_STREAM` bayraklı tek bir `HEADERS` frame'i. Header'lardan sonra gövde geleceğini varsayan middleware, tam olarak hata durumunu yanlış işler.
- 
-:::caution
-`grpc-status: 14` ile birlikte gelen HTTP 200 bir başarısızlıktır. HTTP status kodları üzerine kurulmuş gateway dashboard'ları ve SLO alarmları, gRPC backend'inin tamamen çökmüş olduğu sırada %100 başarı raporlar. Her proxy metrik hattı `grpc-status`'u trailer'lardan açıkça çıkarmalıdır; aksi halde hata oranı SLO'nuz hiçbir şey ölçmüyordur.
-:::
- 
-### Asıl Özellik Deadline'lardır
- 
-Her çağrı, `grpc-timeout` header'ında değer artı birim biçiminde (`2S`, `500m`) bir deadline taşır. Sunucu bunu yerel bir deadline'a çevirir ve idiomatik çatılar onu istek context'ine yayar; böylece downstream çağrılar kalan bütçeyi otomatik olarak devralır. Süre dolduğunda istemci stream'i `RST_STREAM` ile iptal eder ve sunucunun context'i iptal edilir — iş, kimsenin beklemediği bir istek üzerinde devam etmek yerine gerçekten durur.
- 
-Bu, sunucunun istemci pes ettikten sonra da çalışmaya devam ettiği gelişigüzel HTTP istemcilerine göre gerçek bir avantajdır (bkz. [Zaman Aşımları](/distributed-systems/tr/resilience/protection-patterns/timeouts/)). Mekanizmayı işler kılan kural şudur: deadline'lar mutlak ve yayılan değerlerdir, sıçrama başına yeniden türetilmezler. Kalan 300 ms'yi devralmak yerine taze bir 5 s timeout koyan bir sıçrama, mekanizmanın önlemek için var olduğu asimetriyi geri getirir.
- 
-### Status Kodları ve Retry Edilebilirlik
- 
-| Kod | Sayısal | Retry güvenli mi? | Tipik neden |
-|-----|---------|-------------------|-------------|
-| `OK` | 0 | — | Başarı |
-| `CANCELLED` | 1 | Hayır | Çağıran iptal etti veya yayılmış iptal |
-| `DEADLINE_EXCEEDED` | 4 | Yalnızca idempotent ise | Bütçe tükendi; sunucu hâlâ çalışıyor olabilir |
-| `NOT_FOUND` | 5 | Hayır | Kaynak yok |
-| `ALREADY_EXISTS` | 6 | Hayır | Idempotent yaratım çakışması; genellikle başarı sayılır |
-| `PERMISSION_DENIED` | 7 | Hayır | Geçerli kimlik, yetersiz yetki |
-| `RESOURCE_EXHAUSTED` | 8 | Evet, backoff ile | Kota, rate limit, mesaj boyutu taşması |
-| `FAILED_PRECONDITION` | 9 | Hayır | Sistem durumu uygun değil; retry çözmez |
-| `ABORTED` | 10 | Evet | Eşzamanlılık çakışması veya transaction abort |
-| `UNIMPLEMENTED` | 12 | Hayır | İstemci ve sunucu arasında sürüm kayması |
-| `INTERNAL` | 13 | Hayır | Sunucu hatası; retry'da deterministik tekrarlar |
-| `UNAVAILABLE` | 14 | Evet | Geçici: bağlantı hatası, drain, yeniden başlatma |
- 
-`UNAVAILABLE`, koşulsuz retry edilebilir tek koddur; çünkü tanımı gereği RPC'nin uygulama mantığına hiç ulaşmadığı anlamına gelir. `DEADLINE_EXCEEDED` yapısı gereği belirsizdir: sunucu, istemci pes etmeden önce yazmayı commit etmiş olabilir, dolayısıyla idempotent olmayan bir çağrıyı yeniden denemek etkiyi ikizler (bkz. [Idempotency ve Güvenli HTTP Metotları](/distributed-systems/tr/communication/api-gateway/idempotency/)).
- 
-Zengin hata detayı, uzunluğu sınırlı ve header'a uygun bir dize olan `grpc-message` yerine `google.rpc.Status` details alanına aittir. İstemcilerin İngilizce metinde substring araması yapmak yerine yapıya göre dallanabilmesi için tipli bir `ErrorInfo` veya `QuotaFailure` kodlayın.
- 
-## Channel'lar, Subchannel'lar ve Yük Dengeleme
- 
-Bir gRPC **channel**'ı, mantıksal bir servise açılan sanal bir bağlantıdır: bir adı adres kümesine çözer ve adres başına bir **subchannel** (bir HTTP/2 bağlantısı) tutar. Yük dengeleme politikası RPC başına bir subchannel seçer; istemci taraflı dengelemeyi mümkün kılan şey budur.
- 
+gRPC bir uzak prosedür çağrısı (remote procedure call, RPC) framework'üdür: bir servis, arayüz tanımlama dilinde (interface definition language, IDL) tipli metotlar kümesi olarak bir kez tanımlanır, bir derleyici her dil için client stub'larını ve sunucu iskeletlerini üretir ve her çağrı, uzunluk önekli (length-prefixed) binary mesajlar taşıyan tek bir HTTP/2 stream'i olarak yol alır. Protocol Buffers (protobuf), gRPC servislerinin çoğunun kullandığı IDL ve serileştirme formatıdır. Bu ikilinin var olma nedeni, servisler arası iç trafiğin herkese açık web API'lerinden farklı ihtiyaçlarıdır: çağrılar sıktır, payload'lar yapılandırılmıştır, iki uç da aynı organizasyona aittir ve gecikme bütçeleri; metin kodlamanın, elle yazılmış client'ların ve gelişigüzel timeout yönetiminin maliyetinin görünür hâle geleceği kadar dardır.
+
+Bu yığının kazandırdıkları şunlardır: kesin bir uyumluluk sözleşmesine sahip kompakt bir kodlama, tipleri sunucununkinden sapamayan üretilmiş client'lar ve HTTP'nin tek başına tanımlamadığı çağrı semantiği. Bu semantik; çağrıyla birlikte yol alan bir deadline'ı, bir çağrı ağacı boyunca aşağıya yayılan iptali, retry anlamı taşıyan kapalı bir status code kümesini ve isimleri çözen, yükü dengeleyen ve yeniden bağlanan client tarafı bir channel'ı kapsar. Bedeli ise görünürlüktür. Payload'lar şema olmadan anlaşılamayan binary verilerdir, her yanıt gerçek sonucu bir trailer'da taşırken HTTP status 200 döner, HTTP cache'leri ve web araçlarının çoğu bu trafiği yorumlayamaz, tarayıcılar protokolü doğal olarak konuşamaz ve uzun ömürlü multiplex bağlantılar bağlantı düzeyindeki load balancer'ları etkisiz bırakır. Asıl denge, verimlilik ve sözleşme katılığı ile genel HTTP ekosistemiyle birlikte çalışabilirlik arasındadır.
+
+gRPC'den daha eski, kavramsal bir maliyet de vardır. Bir RPC framework'ü uzak bir çağrıyı yerel bir fonksiyon çağrısı gibi gösterir ve hatalar tam da bu benzerlikten doğar: yerel bir çağrı yarı yolda zaman aşımına uğrayamaz, iki kez çalışamaz ve sonucu bilinmez durumdayken başarısız olamaz. gRPC bu gerçekleri gizlemez; onları deadline'larda, status code'larda ve retry kurallarında kodlar ve bu sayfanın geri kalanı büyük ölçüde bunların doğru okunmasıyla ilgilidir. gRPC'nin üzerinde çalıştığı HTTP/2 framing'i (stream'ler, flow control, GOAWAY) [HTTP/2 ve HTTP/3](/distributed-systems/tr/communication/synchronous-protocols/http2-http3-quic/) sayfasında ele alınır ve burada yalnızca referans verilir; uzun ömürlü streaming çağrılar ise [gRPC Streaming](/distributed-systems/tr/communication/synchronous-protocols/grpc-streaming/) sayfasının konusudur.
+
 ```mermaid
 flowchart LR
-    App["Client stub"] --> Ch["Channel: dns:///payments.svc:50051"]
-    Ch --> R["Resolver: DNS or xDS"]
-    R --> LB["LB policy: round_robin"]
-    LB --> SC1["Subchannel to pod A"]
-    LB --> SC2["Subchannel to pod B"]
-    LB --> SC3["Subchannel to pod C"]
+    IDL["order.proto"] --> PROTOC["protoc + language plugins"]
+    PROTOC --> STUB["Generated client stub"]
+    PROTOC --> SKEL["Generated server base"]
+    APP["Caller code"] --> STUB
+    STUB --> CH["Channel"]
+    subgraph CLIENT["Client process"]
+        CH --> RES["Name resolver (dns, xds)"]
+        RES --> LBP["LB policy (pick_first, round_robin)"]
+        LBP --> SC1["Subchannel: HTTP/2 conn"]
+        LBP --> SC2["Subchannel: HTTP/2 conn"]
+    end
+    SC1 --> SRV1["Server transport + handler"]
+    SC2 --> SRV2["Server transport + handler"]
+    SKEL --> SRV1
 ```
-*Subchannel'lar arasında RPC başına dengeleme; bunun önündeki bir L4 proxy, channel'dan çıkan her RPC'yi tek bir backend'e sabitlerdi.*
- 
-Varsayılan politika `pick_first`'tür; tek bir bağlantı kullanır ve dolayısıyla tüm trafiği tek backend'e gönderir. Replikalı bir servis için bu neredeyse hiçbir zaman istenen davranış değildir: tüm endpoint'leri döndüren bir resolver (Kubernetes headless service veya kontrol düzleminden xDS) üzerinde `round_robin` temel çizgidir. Alternatif, HTTP/2'yi anlayan ve stream başına dengeleme yapan bir L7 proxy'dir.
- 
-İşe yaramayan şey L4 load balancer'dır. Channel uzun ömürlü tek bir bağlantı tutar, dolayısıyla o istemciden çıkan her RPC bağlantı ölene kadar aynı backend'e düşer ve yeni ölçeklenen replikalar hiçbir şey almaz. Sunucu tarafında jitter'lı `MaxConnectionAge` ile azaltın; bu periyodik `GOAWAY` ve yeniden çözümlemeyi zorlar (bkz. [L4 ve L7 Yük Dengeleme](/distributed-systems/tr/communication/load-balancing/l4-vs-l7/) ve [İstemci Taraflı Keşif](/distributed-systems/tr/microservice-patterns/service-discovery/client-side-discovery/)).
- 
-Keepalive simetrik yapılandırılmalıdır. Sunucunun zorlama politikasının izin verdiğinden daha sık ping atan istemci, `ENHANCE_YOUR_CALM` ve `too_many_pings` ile `GOAWAY` alır; bu, ağ kararsızlığı gibi görünen periyodik toplu kopmalar olarak yüzeye çıkar. Sunucu `MinTime` değeri istemci keepalive aralığından küçük veya ona eşit olmalıdır.
- 
-## Uygulama
- 
+*gRPC yığını. Kod üretimi iki ucu da tek bir şemadan üretir; çalışma zamanında her çağrıyı hangi bağlantının taşıyacağına çağıran kod değil, channel karar verir.*
+
+Diyagramdaki iki ayrım operasyonel açıdan önemlidir. Şema iki taraf için de tek doğruluk kaynağıdır; dolayısıyla client ile sunucu arasındaki bir tip uyuşmazlığı, iki taraf da dosyanın uyumlu sürümlerinden derlendiği sürece, çalışma zamanında sürpriz değil derleme hatasıdır. "Uyumlu"nun kuralları bir sonraki bölümün konusudur. İkinci ayrım, stub'ın bir bağlantıya sahip olmamasıdır: her çağrıyı bir channel'a devreder; channel hedef ismi adreslere çözer, seçilen her adres için bir HTTP/2 bağlantısı (subchannel) tutar ve her çağrı için subchannel seçimini bir load-balancing policy'sine bırakır. İleride anlatılan gRPC load balancing ve yeniden bağlanma davranışlarının neredeyse tamamı bu channel'da yaşar.
+
+## Protocol Buffers: Kodlama ve Uyumluluk Sözleşmesi
+
+Bir protobuf mesajı düz bir kayıt dizisi olarak kodlanır ve her kayıt bir anahtar ile onu izleyen bir değerden oluşur. Tag adı verilen anahtar `(field_number << 3) | wire_type` olarak hesaplanır: düşük üç bit değerin nerede bittiğinin nasıl bulunacağını, kalan bitler ise hangi alan olduğunu söyler. Alan isimleri wire üzerinde hiçbir zaman görünmez. Bu tek tercih, hem formatın kompaktlığını hem de başlıca operasyonel tehlikesini açıklar: bir decoder bir kaydın ne anlama geldiğini yalnızca birlikte derlendiği şema aracılığıyla bilir.
+
+Tamsayılar ve tag'ler değişken uzunluklu tamsayılar (varint) kullanır. Her bayt yedi payload biti taşır ve en anlamlı bitini devam bayrağı olarak kullanır; en düşük anlamlı grup önce gelir. 150 değeri `96 01` olur: ilk baytın devam biti set edilmiştir ve düşük yedi biti taşır, ikinci bayt geri kalanını taşır. 128'in altındaki değerler bir, 16.384'ün altındakiler iki bayt tutar; tam bir 64 bit değer ise on bayta kadar çıkar. Tag'ler de varint olduğundan 1-15 numaralı alanların tag'i bir bayt, 16-2.047 numaralı alanlarınki iki bayttır; en sık set edilen alanlara en düşük numaraların verilmesi gerekmesinin nedeni budur.
+
+Herhangi bir decoder'ın herhangi bir kaydı atlayabilmesini sağlayan şey wire type'tır. Kullanımda dört wire type vardır: `int32`, `int64`, `uint32`, `uint64`, `sint32`, `sint64`, `bool` ve `enum` için `VARINT` (0); `fixed64`, `sfixed64` ve `double` için `I64` (1); string, bytes, gömülü mesajlar ve packed repeated alanlar için, ardından bir varint uzunluk gelen `LEN` (2); `fixed32`, `sfixed32` ve `float` için `I32` (5). 3 ve 4 numaralı tipler, kullanımdan kaldırılmış proto2 group'larını sınırlıyordu. Wire type bilindiğinde değerin sonu şema olmadan her zaman hesaplanabilir: bir varint oku, sekiz bayt oku, bir uzunluk okuyup o kadar bayt atla ya da dört bayt oku.
+
+```mermaid
+packet-beta
+title Order message, 11 bytes on the wire
+0-7: "0x08 tag f1 VARINT"
+8-23: "0x96 0x01 = 150"
+24-31: "0x12 tag f2 LEN"
+32-39: "0x04 length"
+40-71: "AB-7 (4 bytes UTF-8)"
+72-79: "0x18 tag f3 VARINT"
+80-87: "0x03 zigzag(-2)"
+```
+*`order_id = 150` (alan 1, int64), `sku = "AB-7"` (alan 2, string) ve `qty_delta = -2` (alan 3, sint32) içeren bir mesajın bayt bayt görünümü.*
+
+Yerleşimdeki üç ayrıntı dikkatle okunmaya değer. `0x12` tag'i, üç bit sola kaydırılmış alan 2 (`0x10`) ile wire type 2'nin birleşimidir ve ardından gelen uzunluk baytı, alan 2'yi hiç duymamış olanlar dahil her decoder'a tam olarak kaç bayt atlaması gerektiğini söyler. `qty_delta` alanı `sint32` olarak tanımlanmıştır; bu da varint'ten önce ZigZag kodlaması uygular: 0, -1, 1, -2 sırasıyla 0, 1, 2, 3'e eşlenir, böylece küçük negatif sayılar küçük kalır. Alan `int32` olarak tanımlansaydı -2 değeri 64 bite işaret genişletmesiyle uzatılır ve on bayt tutardı; yani bu tek alan mesajın geri kalanından büyük olurdu. Son olarak baytlarda "Order" diyen hiçbir şey yoktur: mesaj tipi yalnızca bağlamdan, gRPC'de çağrılan metottan bilinir.
+
+### Eski ve Yeni Okuyucular Neden Birlikte Yaşayabilir
+
+Uyumluluk sözleşmesi kodlamadan çıkar. Daha eski bir şemadan derlenmiş bir okuyucu tanımadığı bir tag ile karşılaştığında değeri atlamak için wire type'ı kullanır; modern implementasyonlar atlanan baytları unknown field olarak saklar ve mesaj yeniden serileştirildiğinde geri yazar. Böylece bir mesajı okuyan, değiştiren ve ileten bir servis, daha yeni bir üreticinin eklediği alanları yok etmez. Daha yeni bir şemadan derlenmiş bir okuyucu beklediği bir alanı bulamadığında alanın varsayılan değerini görür. Bu ikisi birlikte, dağıtık deployment'ların dayandığı iki özelliği verir: yeni alanlar tüm okuyucuları koordine etmeden eklenebilir ve eski alanlar, hiçbir okuyucu onlara hâlâ ihtiyaç duymuyorsa kaldırılabilir. Bir alan numarası yeniden kullanılırsa bu özelliklerin hiçbiri geçerli değildir, çünkü eski okuyucu yeni alanın baytlarını eski alanın anlamıyla yorumlar.
+
+Ayrıştırmanın pratikte önemli iki kuralı daha vardır. Skaler ve string alanlarda aynı alan iki kez görünürse son değer kazanır; gömülü mesajlarda tekrar eden örnekler birleştirilir (merge). Bunun sonucu olarak iki serileştirilmiş mesajı uç uca ekleyip ayrıştırmak, ikisini ayrı ayrı ayrıştırıp birleştirmeye eşdeğerdir. Ekleme yoluyla alan düzeyinde override'ı mümkün kılan budur; bir mesajın tekrarlanan tag'lere bakılarak doğrulanamamasının nedeni de budur. Wire üzerindeki alan sırası garanti değildir ve serileştirilmiş baytlar kanonik değildir: eşit iki mesaj farklı diller ya da sürümler arasında farklı kodlanabilir; dolayısıyla serileştirilmiş protobuf'u hash'leyip ya da imzalayıp başka bir implementasyonun aynı baytları üreteceğini beklemeyin.
+
+Bazı tip değişiklikleri aynı wire type'ı paylaştıkları için wire düzeyinde uyumludur. `int32`, `uint32`, `int64`, `uint64` ve `bool` birbirini okuyabilir; geniş bir değer dar bir tipe okunduğunda kesilir (truncation). `sint32` ve `sint64` birbiriyle uyumludur ama düz tamsayı tipleriyle değildir, çünkü ZigZag bit desenini değiştirir. `string` ve `bytes`, baytlar geçerli UTF-8 olduğu sürece uyumludur; gömülü bir mesaj, onun kodlamasını taşıyan `bytes` ile uyumludur. "Wire düzeyinde uyumlu", baytların ayrıştırılabildiği anlamına gelir, anlamın korunduğu anlamına gelmez: `int32`'yi `int64`'e genişletmek yeni yazıcılar için ancak tüm okuyucular yükseltildikten sonra güvenlidir, çünkü eski bir okuyucu değeri sessizce keser. Bu kuralların ekipler arasında nasıl uygulatılacağı, registry uyumluluk modları ve CI'daki breaking-change kontrolleri dahil, [Şema Evrimi ve Schema Registry](/distributed-systems/tr/communication/async-messaging/schema-evolution-registry/) sayfasında ele alınır.
+
 ```proto
 syntax = "proto3";
- 
-package pay.v1;
- 
-option go_package = "example.com/gen/pay/v1;payv1";
- 
-import "google/protobuf/timestamp.proto";
- 
-service Payments {
-  rpc Charge(ChargeRequest) returns (ChargeResponse);
+package shop.v1;
+
+message Order {
+  int64 order_id = 1;                // 1-byte tag: hot fields get numbers 1-15
+  string sku = 2;
+  sint32 qty_delta = 3;              // ZigZag: -2 costs 1 byte, not 10
+  optional uint32 discount_pct = 5;  // explicit presence: 0 differs from unset
+  reserved 4;                        // deleted field: number may never be reused
+  reserved "legacy_price";           // also block the name (JSON mapping uses it)
 }
- 
-message ChargeRequest {
-  // Field numbers 1-15 cost a single tag byte; reserve them for
-  // fields present on every request in the hot path.
-  string account_id = 1;
-  int64 amount_minor_units = 2;
-  string currency = 3;
-  // Client-generated key that makes this RPC safe to retry.
-  string idempotency_key = 4;
- 
-  // Field 5 held a removed "merchant_code" string. Reusing the number
-  // would make old readers decode new data as merchant_code.
-  reserved 5;
-  reserved "merchant_code";
- 
-  // Explicit presence: distinguishes "capture_immediately = false"
-  // from "caller did not specify".
-  optional bool capture_immediately = 6;
-}
- 
-message ChargeResponse {
-  string payment_id = 1;
-  Status status = 2;
-  google.protobuf.Timestamp settled_at = 3;
- 
-  enum Status {
-    // Proto3 requires a zero sentinel. Treat it as a protocol error,
-    // never as a valid business state.
-    STATUS_UNSPECIFIED = 0;
-    STATUS_AUTHORIZED = 1;
-    STATUS_CAPTURED = 2;
-    STATUS_DECLINED = 3;
-  }
+
+service OrderService {
+  rpc GetOrder(GetOrderRequest) returns (Order);  // path /shop.v1.OrderService/GetOrder
 }
 ```
- 
-```go
-package main
- 
-import (
-	"context"
-	"errors"
-	"log/slog"
-	"net"
-	"time"
- 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/status"
- 
-	payv1 "example.com/gen/pay/v1"
-)
- 
-type server struct {
-	payv1.UnimplementedPaymentsServer
-	ledger Ledger
-}
- 
-func (s *server) Charge(ctx context.Context, req *payv1.ChargeRequest) (*payv1.ChargeResponse, error) {
-	if req.GetIdempotencyKey() == "" {
-		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
-	}
- 
-	// The caller's deadline is already in ctx. Never create a fresh
-	// timeout here: that lets this hop outlive the caller.
-	if dl, ok := ctx.Deadline(); ok && time.Until(dl) < 50*time.Millisecond {
-		// Not enough budget left to finish. Fail fast so the caller sees
-		// a clean error instead of a half-applied write.
-		return nil, status.Error(codes.DeadlineExceeded, "insufficient remaining deadline")
-	}
- 
-	res, err := s.ledger.Charge(ctx, req.GetIdempotencyKey(), req.GetAmountMinorUnits())
-	switch {
-	case errors.Is(err, ErrDuplicate):
-		// Idempotent replay: return the original result, not an error.
-		return res.Proto(), nil
-	case errors.Is(err, ErrInsufficientFunds):
-		// FAILED_PRECONDITION: retrying cannot succeed until state changes.
-		return nil, status.Error(codes.FailedPrecondition, "insufficient funds")
-	case errors.Is(err, context.DeadlineExceeded):
-		return nil, status.Error(codes.DeadlineExceeded, "ledger did not respond in time")
-	case err != nil:
-		slog.ErrorContext(ctx, "charge failed", "key", req.GetIdempotencyKey(), "err", err)
-		// INTERNAL is not client-retryable, which is correct for bugs.
-		return nil, status.Error(codes.Internal, "charge failed")
-	}
-	return res.Proto(), nil
-}
- 
-func main() {
-	creds, err := credentials.NewServerTLSFromFile("cert.pem", "key.pem")
-	if err != nil {
-		slog.Error("tls load failed", "err", err)
-		return
-	}
- 
-	srv := grpc.NewServer(
-		grpc.Creds(creds),
-		// Bound concurrent work; otherwise one client can occupy every
-		// handler goroutine in the process.
-		grpc.MaxConcurrentStreams(250),
-		// Default is 4 MiB. Raise deliberately, and prefer streaming
-		// over oversized unary payloads.
-		grpc.MaxRecvMsgSize(8<<20),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			// Must be <= the client keepalive interval, or clients get
-			// GOAWAY with too_many_pings and reconnect in a loop.
-			MinTime:             10 * time.Second,
-			PermitWithoutStream: true,
-		}),
-		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Time:    20 * time.Second,
-			Timeout: 5 * time.Second,
-			// Force periodic reconnection so long-lived clients
-			// rediscover newly scaled backends. Grace plus jitter
-			// avoids a synchronized reconnect wave.
-			MaxConnectionAge:      30 * time.Minute,
-			MaxConnectionAgeGrace: 30 * time.Second,
-		}),
-	)
-	payv1.RegisterPaymentsServer(srv, &server{})
- 
-	lis, err := net.Listen("tcp", ":50051")
-	if err != nil {
-		slog.Error("listen failed", "err", err)
-		return
-	}
-	if err := srv.Serve(lis); err != nil {
-		slog.Error("serve stopped", "err", err)
-	}
-}
+
+### Presence, Varsayılan Değerler ve Enum'lar
+
+Proto3 başlangıçta skaler alanlara implicit presence (örtük varlık) veriyordu: varsayılan değerini (0, boş string, false) taşıyan bir alan hiç serileştirilmez ve okuyucu "sıfıra set edildi" ile "set edilmedi"yi ayırt edemez. Bir indirim yüzdesi, bir bakiye ya da iş anlamında varsayılanı true olan bir boolean bayrak için bu belirsizlik, kısmi güncelleme yapan bir handler'ın bilinçli bir sıfırı "eski değeri koru" diye yorumladığı hatalara dönüşür. `optional` anahtar kelimesi explicit presence'ı (açık varlık) geri getirir ve bir has-metodu üretir; protobuf 3.12'den itibaren deneysel bir bayrak arkasında mevcuttu ve 3.15'ten itibaren varsayılan olarak etkin. 2024'te `protoc` 27.0 ile genel kullanıma açılan Protobuf Editions, proto2/proto3 ayrımını dosya ve alan başına feature'larla değiştirir; Edition 2023 varsayılan olarak explicit presence, packed repeated skalerler ve açık enum'lar kullanır. Mesaj tipindeki alanların presence'ı her zaman vardı.
+
+Enum'lar da benzer bir tuzak taşır. Proto3 ilk değerin sıfır olmasını ister ve onu varsayılan olarak kullanır; bu nedenle ilk değer anlamlı bir durum değil, açık bir `..._UNSPECIFIED` değeri olmalıdır. Aksi hâlde alanı hiç set etmeyen bir üreticiden gelen her mesaj o durumda okunur. Proto3 enum'ları açıktır (open): bilmediği sayısal bir değer alan okuyucu sayıyı korur ve uygulama kodu switch ifadesinin dışında kalan bir değeri ele almak zorundadır. Proto2 enum'ları kapalıdır (closed) ve bilinmeyen değerleri unknown field kümesine taşır; bu da alanın set edilmemiş gibi okunması demektir. Bu yüzden bir enum değeri eklemek wire üzerinde uyumlu, ama her tüketicinin iş mantığında potansiyel olarak uyumsuz bir değişikliktir.
+
+:::danger[Alan numarasını yeniden kullanmak veriyi sessizce bozar]
+Alan 4 önce `int64 price_cents` iken sonradan `int64 warehouse_id` olarak yeniden kullanılırsa, eski binary'ler depo kimliklerini fiyat olarak okumaya devam eder. İkisi de wire type 0 kullandığı için ayrıştırma başarısız olmaz: hata yok, log satırı yok; yalnızca veritabanlarına yazılan ve diğer servislere iletilen yanlış değerler vardır. Silinen alanları hem numara hem isim için `reserved` ile işaretleyin ve her şema değişikliğinde bir breaking-change kontrolcüsü çalıştırın. Alanları "toparlamak için" yeniden numaralandırmak aynı hatadır.
+:::
+
+### Hesaplamalı Örnek: Kodlama Ne Kazandırır
+
+100 satır kalemi içeren, örnek amaçlı bir sepet yanıtı varsayalım; her kalemde 1,2 milyon civarında bir ürün kimliği, küçük bir adet, 2.000 civarında kuruş cinsinden bir fiyat ve 10 karakterlik bir SKU bulunsun. Protobuf'ta her kalem ürün kimliği için 4 bayt (1 baytlık tag ve 3 baytlık varint), adet için 2, fiyat için 3 ve SKU için 12 bayt (tag, uzunluk, 10 bayt), toplamda 21 bayt tutar; repeated gömülü mesaj olarak sarıldığında bir tag ve bir uzunluk baytı eklenir, dolayısıyla yanıt 100 x 23 = 2.300 bayttır. Protobuf'ın kanonik JSON eşlemesinde, JavaScript client'ları hassasiyet kaybetmesin diye 64 bit tamsayılar string olarak kodlanır; bu eşlemeyle eşdeğer kompakt JSON 8.011 bayttır, yani yaklaşık 3,5 kat büyüktür, çünkü her kalem dört alan ismini tekrarlar ve sayıları ondalık olarak yazar.
+
+Saniyede 20.000 yanıt varsayımıyla bu, sıkıştırma ve framing öncesinde kabaca 1,28 Gbit/s JSON payload'a karşılık 0,37 Gbit/s protobuf demektir. gRPC bunun üzerine her mesaja 5 baytlık önek ve her frame'e 9 baytlık HTTP/2 DATA frame başlığı ekler; HPACK ise tekrarlanan header'ları çağrı başına birkaç bayta indirir. JSON alan isimleri iyi sıkıştığı için sıkıştırma boyut farkını ciddi ölçüde daraltır, ama maliyeti iki uçta da CPU'ya taşır. Boyut görünen yarıdır; daha az görünen yarı ayrıştırmadır: bir JSON parser'ı her baytı tarar, escape'leri işler ve ondalık metni tamsayıya çevirir; protobuf parser'ı ise bir tag okur, alan numarasına göre dallanır ve değeri kopyalar ya da çözer. Gerçek oran dile ve kütüphaneye bağlıdır; bu yüzden başkasının benchmark'ını benimsemek yerine kendi payload'larınızı ölçün. Aritmetiğin kanıtladığı şey, küçük ve sayı ağırlıklı mesajlarda JSON boyutuna verinin değil alan isimlerinin hâkim olduğudur.
+
+## Wire Üzerinde gRPC: Bir Çağrı, Bir HTTP/2 Stream'i
+
+Bir gRPC çağrısı sabit biçimli bir HTTP/2 isteğidir. İstek header'ları `:method POST`, `/package.Service/Method` biçiminde bir `:path`, `content-type: application/grpc` (isteğe bağlı olarak `+proto` ya da `+json` ile) ve `te: trailers`'tır; sonuncusu, trailer iletemeyen bir proxy'nin çağrıları sessizce bozması yerine tespit edilmesi için vardır. İsteğe bağlı header'lar timeout'u (`grpc-timeout`), mesaj sıkıştırma codec'ini (`grpc-encoding`; `grpc-accept-encoding` ise gönderenin kabul ettiklerini listeler) ve uygulama metadata'sını taşır. Sonu `-bin` ile biten metadata anahtarları binary değerleri base64 olarak taşır; diğer tüm değerler yazdırılabilir ASCII olmalıdır; `grpc-` ile başlayan isimler ayrılmıştır. Implementasyonlar header ve trailer boyutunu genellikle sınırlar; spesifikasyonun önerdiği değer 8 KiB'tır. Metadata içindeki büyük token'ların eninde sonunda çağrıları `RESOURCE_EXHAUSTED` ya da `INTERNAL` ile başarısız kılmasının nedeni budur.
+
+Gövde, uzunluk önekli mesajlardan oluşan bir dizidir: mesajın sıkıştırılıp sıkıştırılmadığını belirten bir bayt, big-endian dört baytlık uzunluk ve ardından serileştirilmiş mesaj. gRPC mesajlarını HTTP/2 frame'lerinden ayıran şey bu önektir: bir mesaj birden çok DATA frame'ine yayılabilir, bir frame iki mesajın parçalarını içerebilir ve alıcı bildirilen uzunluğa göre yeniden birleştirir. Unary bir istek tam olarak bir mesaj ve ardından END_STREAM'dir; streaming çağrılar aynı stream üzerinde çok sayıda mesaj gönderir. gRPC'nin dört metot türünün (unary, server streaming, client streaming, bidirectional) protokol değişikliği gerektirmemesinin, yalnızca her yönde farklı sayıda mesaj gerektirmesinin nedeni budur.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client channel
+    participant S as Server transport
+    participant H as Handler
+    C->>S: HEADERS :path /shop.v1.OrderService/GetOrder, grpc-timeout 250m
+    C->>S: DATA [flag 0][len 11][Order request] END_STREAM
+    S->>H: dispatch with deadline = now + 250 ms
+    alt handler finishes in time
+        H-->>S: response message, status OK
+        S->>C: HEADERS :status 200, content-type application/grpc
+        S->>C: DATA [flag 0][len N][Order]
+        S->>C: HEADERS trailers grpc-status 0, END_STREAM
+    else deadline passes first
+        Note over C: client fails call with DEADLINE_EXCEEDED
+        C->>S: RST_STREAM (CANCEL)
+        S->>H: context cancelled, handler should stop work
+    end
 ```
- 
-İstemci retry politikası, çatının her çağrı noktasının yükü bağımsız olarak katlamasına izin vermek yerine küresel bir bütçe uygulayabilmesi için elle yazılmış döngülerde değil service config'de tanımlanmalıdır:
- 
+*Unary bir çağrı. Sonuç gövdeden sonra trailer'larda gelir; deadline dolduğunda client stream'i iptal eder ve sunucudaki handler bunu çağrı context'i üzerinden öğrenir.*
+
+Yanıt aynı deseni ters yönde izler: `:status 200` içeren ilk header'lar, sıfır ya da daha fazla mesaj ve ardından END_STREAM taşıyan, `grpc-status`'u, isteğe bağlı percent-encoded `grpc-message`'ı ve isteğe bağlı olarak yapılandırılmış hata ayrıntıları içeren serileştirilmiş bir `google.rpc.Status` olan `grpc-status-details-bin`'i barındıran sondaki bir HEADERS frame'i. Hiç mesaj üretmeden başarısız olan bir çağrı Trailers-Only yanıtı kullanır: hem HTTP status'unu hem gRPC status'unu içeren tek bir HEADERS frame'i. Status'un trailer'larda gitmesinin nedeni, streaming yapan bir sunucunun göndermeye başladığında sonucu bilmemesidir; bedeli ise yalnızca `:status`'a bakan aracıların her başarısız çağrı için 200 görmesidir. 7. adımda trailer frame'i üzerindeki END_STREAM çağrıyı kapatır: `grpc-status` olmadan biten bir stream protokol hatasıdır ve client, hata bölümünde anlatıldığı gibi onun için bir status sentezler.
+
+İptal dalında client CANCEL koduyla RST_STREAM gönderir. Sunucunun transport'u çağrıyı iptal edilmiş olarak işaretler ve handler'ın context'i ya da cancellation token'ı tetiklenir; ama handler kodunun bunu kontrol etmesi gerekir: context'i iletmeden bir veritabanı sorgusunda bekleyen bir handler sonuna kadar çalışmaya devam eder ve sonucu çöpe atar. HTTP/2 hata kodları gRPC status'larına tanımlı bir biçimde eşlenir. `REFUSED_STREAM`, `UNAVAILABLE`'a eşlenir ve sunucunun stream'i işlemediğini garanti eder, dolayısıyla yeniden denemek güvenlidir; GOAWAY, son kabul edilen kimliğin üzerindeki hangi stream'lerin hiç işlenmediğini client'a bildirir ve bunu [HTTP/2 sayfası](/distributed-systems/tr/communication/synchronous-protocols/http2-http3-quic/) açıklar; `ENHANCE_YOUR_CALM` ise `RESOURCE_EXHAUSTED`'a eşlenir.
+
+Varsayılan protokol, tarayıcıların fetch API'lerinin sunmadığı trailer'larla birlikte uçtan uca HTTP/2 gerektirir. gRPC-Web, trailer'ları yanıt gövdesinin içinde kodlayan ve HTTP/1.1 ya da HTTP/2 üzerinde çalışan bir varyanttır; Envoy'un gRPC-Web filtresi gibi çeviri yapan bir proxy'ye ya da bunu doğal olarak implemente eden bir sunucuya ihtiyaç duyar ve tarayıcılardan client streaming ya da bidirectional streaming'i desteklemez. Buf'ın Connect protokolü, aynı sunucuda gRPC ve gRPC-Web desteğinin yanında daha basit bir HTTP eşlemesi tanımlar. Bir proxy'nin ya da kütüphanenin işaretlenmiş metotları REST tarzı JSON endpoint'lerine eşlediği transcoding (`google.api.http` annotation'ı), aynı servisi gRPC konuşamayan client'lara açmanın üçüncü yoludur.
+
+## Deadline'lar, İptal ve Status Code'lar
+
+### Deadline Yayılımı
+
+Deadline, çağıranın artık yanıtı istemediği mutlak bir zaman noktasıdır. gRPC bunu wire için göreli bir timeout'a çevirir: `grpc-timeout`, en fazla sekiz basamaklı pozitif bir tamsayı ve ardından bir birim (`H`, `M`, `S`, `m`, `u`, `n`) taşır; dolayısıyla `250m` 250 milisaniye demektir. Sunucu, timeout'u alındığı anda kendi saatine ekler ve yerel bir deadline elde eder. Zaman damgası yerine süre göndermek, yayılımı host'lar arasındaki saat kaymasından (clock skew) etkilenmez kılar; bedeli ağ geçiş süresinin düşülmemesidir. Bu yüzden her hop'un deadline'ı gerçeğinden tek yönlü gecikme kadar sonradır; bu, bölge içinde tipik olarak bir milisaniyenin çok altındadır ve deadline'ların ayarlandığı hassasiyette önemsizdir.
+
+Bir sunucu handler'ı, gelen çağrının context'ini kullanarak dışarıya bir çağrı yaptığında, giden çağrı kalan süreyi devralır. Java ve Go, context iletildiğinde bunu otomatik olarak yayar; C++'ta bunun açıkça etkinleştirilmesi gerekir. Yayılımın sağladığı değişmez (invariant) şudur: hiçbir aşağı akış çağrısına, asıl çağıranın hâlâ beklemeye razı olduğundan fazla süre verilmez; dolayısıyla her hop context'i ilettiği ve her handler iptale uyduğu sürece bir çağrı ağacı onu başlatan istekten daha uzun yaşayamaz. Deadline yoksa gRPC süresiz bekler: varsayılan değer hiç deadline olmamasıdır.
+
+Edge'deki bir client'ın 300 ms ayarladığını varsayalım. Gateway kimlik doğrulamaya 10 ms harcar ve order servisini kabaca 290 ms kalmışken çağırır; order servisi bir veritabanı okumasına 40 ms harcar ve pricing servisini kabaca 250 ms kalmışken çağırır. Pricing aşırı yüklenmiş ve yavaşsa, handler'ı kendi context'inin edge client'ın vazgeçtiği anla hemen hemen aynı anda dolduğunu görür ve ağaçtaki her hop, kimsenin okumayacağı bir yanıt için çalışmaya devam etmek yerine birbirinden bir milisaniye içinde iptal edilir. Bunu her biri 300 ms olan sabit hop başına timeout'larla karşılaştırın: pricing, client vazgeçtikten 600 ms sonra hâlâ çalışıyor, bir veritabanı bağlantısını ve bir worker thread'ini tutuyor olabilir. Sayıların kendilerinin nasıl seçileceği, deneme başına ve uçtan uca bütçeler dahil, [Zaman Aşımları](/distributed-systems/tr/resilience/protection-patterns/timeouts/) sayfasında ele alınır.
+
+:::caution[Varsayılan, deadline olmamasıdır]
+Deadline'sız bir gRPC çağrısı sonsuza kadar bekleyebilir ve askıda kalan her çağrı her hop'ta bir stream, bir goroutine ya da thread, buffer'lar ve çoğu zaman bir veritabanı bağlantısı tutar. Handler içinden yapılanlar dahil her giden çağrıya bir deadline koyun ve kalan bütçenin yayılması için gelen context'i iletin. Bir sunucu, `grpc-timeout` olmadan gelen çağrıları reddeden ya da sınırlayan bir interceptor ile bir tavan uygulatabilir.
+:::
+
+### Retry Sözleşmesi Olarak Status Code'lar
+
+gRPC'nin `OK` (0) ile `UNAUTHENTICATED` (16) arasında on yedi status code'u vardır. Kütüphanenin kendisi bunların yalnızca bir alt kümesini üretir; `INVALID_ARGUMENT`, `NOT_FOUND`, `ALREADY_EXISTS`, `FAILED_PRECONDITION`, `ABORTED`, `OUT_OF_RANGE` ve `DATA_LOSS` gibi kodları yalnızca uygulama kodu üretir. Değerleri, client'ların, proxy'lerin ve retry policy'lerinin mesajları ayrıştırmadan onlara göre davranabilmesidir; ama bu yalnızca servisler onları kesin biçimde kullanırsa işe yarar: doğrulama hataları için `UNKNOWN` ya da aşırı yük için `INTERNAL` döndüren bir servis, aşağı akıştaki her retry policy'sini ve dashboard'u sabote eder.
+
+| Kod | Tipik kaynak | Çağıran için anlamı | Retry? |
+|---|---|---|---|
+| `UNAVAILABLE` (14) | Kütüphane: bağlantı hatası, GOAWAY, hazır subchannel yok; sunucu: aşırı yük | İşlenmedi ya da geçici olarak yapılamıyor | Evet, backoff ile; varsayılan retry edilebilir kod |
+| `DEADLINE_EXCEEDED` (4) | Kütüphane: deadline doldu | Sonuç bilinmiyor; sunucu işi tamamlamış olabilir | Yalnızca idempotent ise ve bütçe kaldıysa |
+| `CANCELLED` (1) | Kütüphane: çağıran iptal etti | Çağıran artık sonucu istemiyor | Hayır |
+| `RESOURCE_EXHAUSTED` (8) | Kütüphane: mesaj çok büyük, header limitleri; sunucu: kota | İstek boyut ya da kota nedeniyle reddedildi | Boyut için hayır; kota için yalnızca pushback'ten sonra |
+| `UNIMPLEMENTED` (12) | Kütüphane: bilinmeyen metot ya da servis | Client ve sunucu şemaları uyuşmuyor | Hayır |
+| `INTERNAL` (13) | Kütüphane: protokol ya da ayrıştırma hatası; sunucu: bug | Bir şey bozuk | Hayır |
+| `ABORTED` (10) | Uygulama: eşzamanlılık çakışması | Oku-değiştir-yaz döngüsünün tamamını yeniden dene | Daha üst bir düzeyde |
+| `FAILED_PRECONDITION` (9) | Uygulama: durum işleme izin vermiyor | Durum değişene kadar yeniden deneme | Hayır |
+
+Tablo en sık yapılan yanlış okumayı kayıt altına alır: `DEADLINE_EXCEEDED` sunucunun başarısız olduğu anlamına gelmez. Client'ın beklemeyi bıraktığı anlamına gelir ve sunucu yazmayı bir mikrosaniye sonra commit etmiş olabilir. `UNAVAILABLE` için otomatik retry güvenlidir, çünkü kütüphane bu kodu isteğin işlenmediği ya da sunucunun başlayamayacağını bildirdiği durumlar için kullanır; diğer her şey için retry güvenliği metodun idempotent olmasına bağlıdır ve bu, [Idempotency ve Güvenli HTTP Metotları](/distributed-systems/tr/communication/api-gateway/idempotency/) sayfasının konusudur.
+
+### Yerleşik Retry ve Hedging
+
+gRPC üç tür retry'ı birbirinden ayırır. Transparent retry'lar, kütüphane sunucu uygulamasının çağrıyı hiç görmediğinden emin olduğunda hiçbir yapılandırma olmadan gerçekleşir: çağrı client'tan hiç çıkmadıysa sınırsız sayıda, sunucu kütüphanesine ulaşıp handler'a ulaşmadıysa bir kez. Yapılandırılmış retry'lar, service config içindeki metot başına bir policy'yi izler: `maxAttempts`, üstel bir backoff (`initialBackoff`, `maxBackoff`, `backoffMultiplier`, artı eksi %20 jitter ile) ve bir `retryableStatusCodes` listesi. Hedging ise ilk çağrının başarısız olmasını beklemeden bir `hedgingDelay` sonrasında çağrının ek kopyalarını gönderir ve ilk başarılı yanıtı alır. Hem retry hem hedging policy'leri 5'in üzerindeki `maxAttempts` değerlerini 5 olarak ele alır ve deneme sayısı asıl çağrıyı da içerir.
+
+Bir çağrı, client yanıt header'larını aldığı anda commit edilmiş olur: o andan sonra yeniden denenmez, çünkü kısmi bir yanıt uygulamaya ulaşmış olabilir. Genel deadline tüm denemeleri birlikte sınırlar; sunucu ise trailer'larında `grpc-retry-pushback-ms` göndererek belirli bir gecikme isteyebilir ya da negatif bir değerle retry yapılmamasını isteyebilir. Retry throttling sunucu başına bir token bucket'tır: retry edilebilir status ile biten her başarısız çağrı bir token düşer, her başarı `tokenRatio` kadar ekler ve bucket `maxTokens`'ın yarısının altına düştüğünde retry'lar toparlanana kadar durur. Başarısız bir backend'in katlanmış yük almasını engelleyen mekanizma budur ve yapılandırılmadıkça kapalıdır.
+
 ```json
 {
-  "loadBalancingConfig": [{ "round_robin": {} }],
-  "methodConfig": [
-    {
-      "name": [{ "service": "pay.v1.Payments" }],
-      "timeout": "2s",
-      "retryPolicy": {
-        "maxAttempts": 4,
-        "initialBackoff": "0.1s",
-        "maxBackoff": "1s",
-        "backoffMultiplier": 2,
-        "retryableStatusCodes": ["UNAVAILABLE", "RESOURCE_EXHAUSTED"]
-      }
+  "methodConfig": [{
+    "name": [{ "service": "shop.v1.OrderService", "method": "GetOrder" }],
+    "timeout": "0.3s",
+    "waitForReady": false,
+    "retryPolicy": {
+      "maxAttempts": 3,
+      "initialBackoff": "0.05s",
+      "maxBackoff": "0.5s",
+      "backoffMultiplier": 2,
+      "retryableStatusCodes": ["UNAVAILABLE"]
     }
-  ],
-  "retryThrottling": {
-    "maxTokens": 100,
-    "tokenRatio": 0.1
-  }
+  }],
+  "retryThrottling": { "maxTokens": 10, "tokenRatio": 0.1 },
+  "loadBalancingConfig": [{ "round_robin": {} }]
 }
 ```
- 
-`retryThrottling`, en sık atlanan ve en çok önem taşıyan maddedir: retry'ları başarılı çağrıların bir oranıyla sınırlar, böylece zorlanan bir backend aynı anda retry yapan istemcilerden normal yükünün 4 katını almaz (bkz. [Retry Fırtınaları ve Metastabil Hatalar](/distributed-systems/tr/resilience/flow-control/retry-storms-metastable-failures/)).
- 
-## Hata Modları ve Operasyonel Tuzaklar
- 
-**Mesaj boyutu uçurumları.** 4 MiB'lık varsayılan alım limiti transport katmanında `RESOURCE_EXHAUSTED` üretir ve tipik olarak yalnızca en büyük tenant'ta görülür. Belirti: hesapların %99'unda çalışan, bir avuç hesapta deterministik biçimde başarısız olan bir RPC. Çözüm, tavanı sınırsızca yükseltmek yerine sayfalamak veya server streaming'e geçmektir (bkz. [gRPC Streaming](/distributed-systems/tr/communication/synchronous-protocols/grpc-streaming/)); büyük unary mesaj aynı zamanda uçuştaki her çağrı için bitişik tek bir bellek ayırması demektir.
- 
-**Scale-out sonrası yük dengesizliği.** Channel'lar backend'lere sabitlendiği için yeni pod'lar boşta beklerken eskiler doyuma ulaşır. Deployment sonrası pod başına RPC oranı varyansıyla tespit edin; istemcileri yeniden başlatmak yerine `MaxConnectionAge` ve gerçek bir LB politikasıyla düzeltin.
- 
-**Deadline unutkanlığı.** Servis, çağıranın context'ini yaymak yerine `context.Background()` ile yeni bir context oluşturur ve istemci pes ettikten sonra iş devam eder. Belirti: backend CPU ve veritabanı yükünün istemcinin gözlemlediği trafikle ilişkisiz olması. Tespit için sunucu tarafı handler süresi histogramlarını istemci tarafı RPC süresi histogramlarıyla karşılaştırın; istemci tarafında karşılığı olmayan ağır bir sunucu kuyruğu bu sorunun imzasıdır.
- 
-**`UNIMPLEMENTED` üreten sürüm kayması.** Daha yeni bir proto'dan üretilmiş istemci, deploy edilmiş sunucuda bulunmayan bir metodu çağırır. Bu bir deploy sıralaması hatasıdır: her zaman önce sunucu, sonra istemci. Bir RPC'yi kaldıran veya adını değiştiren her proto değişikliğinde CI'ı kırmak ucuz bir sigortadır (bkz. [API Versiyonlama Stratejileri](/distributed-systems/tr/communication/synchronous-protocols/api-versioning/)).
- 
-**Proxy'nin trailer uyumsuzluğu.** HTTP/2'yi trailer desteği olmadan sonlandıran bir ara katman her hatayı ya asılı kalmış bir stream'e ya da çıplak bir 200'e çevirir. Doğrulamayı pod'a doğrudan değil, gerçek ingress yolu üzerinden `grpcurl` ile uçtan uca yapın.
- 
-**Enum kayması.** Producer'da yeni bir enum değeri yayımlanır ve default dalı olmayan `switch` kullanan tüketiciler sessizce yanlış dalı seçer. Reddeden bir default dalını zorunlu kılın ve wire uyumlu olsalar bile enum eklemelerini koordineli bir rollout gibi ele alın. Bunun registry düzeyinde yönetişimi [Şema Evrimi ve Schema Registry](/distributed-systems/tr/communication/async-messaging/schema-evolution-registry/) sayfasında ele alınır.
- 
-**Blocking stub'ların çağıranı tüketmesi.** İstek başına thread modeli olan dillerdeki senkron stub'lar, yavaş bir downstream'i çağıranın thread pool tükenmesine çevirir ve kesintiyi yukarı doğru yayar. Havuzu bağımlılık başına ayrı sınırlayın (bkz. [Bulkhead Deseni](/distributed-systems/tr/resilience/protection-patterns/bulkhead-pattern/)).
- 
-**Tarayıcıdan erişilememe.** Tarayıcılar HTTP/2 frame'lerini kontrol edemez ve trailer okuyamaz, dolayısıyla bir sayfadan native gRPC imkansızdır. gRPC-Web veya Connect, çeviri yapan bir proxy gerektirir (Envoy'un gRPC-Web filtresi veya Connect uyumlu bir sunucu) ve gRPC-Web yalnızca unary ile server-streaming çağrıları destekler.
- 
-## gRPC Ne Zaman Kullanılır
- 
-| Boyut | gRPC | REST/JSON | GraphQL |
-|-------|------|-----------|---------|
-| Payload boyutu ve codec CPU'su | Kompakt binary, hızlı | Ayrıntılı, parser'a bağlı | Ayrıntılı |
-| Sözleşme zorlaması | Derleyici denetimli IDL | Tavsiye niteliğinde (OpenAPI) | Şema zorlamalı |
-| Deadline yayılımı | Protokole gömülü | İstemci başına elle | Elle |
-| Ara katman caching | Yok | Her katmanda yerleşik | Fiilen yok |
-| Tarayıcı desteği | Proxy gerektirir | Evrensel | Evrensel |
-| Debug edilebilirlik | `grpcurl` ve descriptor ister | `curl` ve gözle | Introspection araçları |
-| Streaming | Birinci sınıf çift yönlü | Yanında SSE veya WebSocket | Subscription'lar |
- 
-Çağrı hacminin serileştirme maliyetini ve bağlantı verimliliğini CPU profilinde görünür kıldığı iç servisler arası trafikte, çok dilli ekiplerin derleyicinin zorladığı bir sözleşmeye ihtiyaç duyduğu yerlerde ve bir çağrı grafiği boyunca deadline yayılımı ile iptalin gerçek operasyonel değeri olduğu durumlarda gRPC kullanın.
- 
-Tüketiciler harici veya bilinmeyen olduğunda, edge caching kodlama verimliliğinden değerli olduğunda ya da standart HTTP araçlarıyla işletilebilirlik önemli olduğunda [REST](/distributed-systems/tr/communication/synchronous-protocols/rest/) tercih edin. İstemciler çok sayıda varlık grafiği üzerinde yanıt şekillendirmek zorundaysa [GraphQL](/distributed-systems/tr/communication/synchronous-protocols/graphql/) tercih edin. Ayrıca bir gRPC servisinin, `google.api.http` anotasyonlarıyla yönlendirilen bir transcoding gateway üzerinden REST olarak da yayımlanabileceğini not edin: iç çağıranlar binary yolu, dış çağıranlar JSON'u alır; tek tanım ve tek gerçek kaynağıyla.
+
+Service config, client uygulaması tarafından sağlanabilir ya da isim çözümlemesi aracılığıyla iletilebilir; böylece timeout'lara, retry'lara ve dengelemeye her çağıran değil servis sahibi karar verir. Snippet üç ayarı birlikte gösterir: deadline koymayan çağıranlar için varsayılan bir deadline, yalnızca `UNAVAILABLE` durumunda en fazla iki retry, kabaca her on çağrıdan biri başarısız olduğunda retry'ları kesen bir throttle ve çözümlenen tüm adresler arasında çağrı başına dengeleme. `waitForReady: false`, varsayılan "fail fast" davranışıdır: channel'ın hazır bağlantısı yokken yapılan bir çağrı deadline'a kadar kuyrukta beklemek yerine hemen `UNAVAILABLE` ile başarısız olur. Backoff ve jitter'ın genel teorisi [Üstel Geri Çekilme ve Jitter ile Yeniden Deneme](/distributed-systems/tr/resilience/protection-patterns/retry-exponential-backoff/) sayfasında ele alınır.
+
+## Channel'lar: Bağlantılar, Keepalive ve Load Balancing
+
+### Subchannel Bağlantı Durumları
+
+Her subchannel tek bir transport bağlantısı üzerinde çalışan bir durum makinesidir ve channel'ın kendi durumu subchannel'larının durumlarını birleştirir. Bir çağrının gönderilip gönderilmeyeceğine, kuyruğa alınıp alınmayacağına ya da başarısız olup olmayacağına bu durumlar karar verir.
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> CONNECTING: call issued or connect requested
+    CONNECTING --> READY: TCP, TLS and HTTP/2 SETTINGS complete
+    CONNECTING --> TRANSIENT_FAILURE: connect error or timeout
+    READY --> IDLE: GOAWAY or idle timeout
+    READY --> TRANSIENT_FAILURE: connection lost, keepalive ack missing
+    TRANSIENT_FAILURE --> CONNECTING: backoff timer fires
+    TRANSIENT_FAILURE --> IDLE: backoff ends, reconnect on demand (newer stacks)
+    IDLE --> SHUTDOWN: channel closed
+    READY --> SHUTDOWN: channel closed
+    TRANSIENT_FAILURE --> SHUTDOWN: channel closed
+```
+*Bir gRPC subchannel'ının bağlantı durumları. Çağrılar yalnızca READY durumunda gönderilir; TRANSIENT_FAILURE durumunda fail-fast çağrılar UNAVAILABLE ile başarısız olur, wait-for-ready çağrılar ise kuyrukta bekler.*
+
+`TRANSIENT_FAILURE` ile `CONNECTING` arasındaki döngüyü gRPC'nin bağlantı backoff'u yönetir: ilk yeniden deneme 1 saniye sonra gelir, her başarısızlık gecikmeyi 1,6 ile çarparak 120 saniyeye kadar çıkarır, artı eksi %20 jitter client'ları birbirinden ayırır ve her denemeye bağlanmak için en az 20 saniye tanınır. Backoff yalnızca sunucunun SETTINGS frame'i geldiğinde, yani bağlantı TCP düzeyinde değil HTTP/2 düzeyinde gerçekten başarılı olduğunda sıfırlanır. Bundan iki sonuç çıkar. İki dakikalık bir kesintiden sonra geri gelen bir backend'i her client hemen kullanmaz; bazı client'lar 60 ila 120 saniyelik bir beklemenin ortasındadır. TCP'yi kabul edip TLS sırasında başarısız olan bir sunucu ise client'ları giderek büyüyen bir backoff'ta tutar ve bu, "servis ayakta ama kimse bağlanmıyor" gibi görünür.
+
+GOAWAY ile READY'den IDLE'a geçiş, düzgün sunucu kapanışını ve bağlantı yenilemeyi çalıştıran mekanizmadır: subchannel, boşaltılan bağlantı üzerinde yeni çağrı göndermeyi bırakır, uçuştaki çağrıların bitmesine izin verir ve bir sonraki çağrıda yeniden bağlanır; bu da çoğu implementasyonda isim çözümlemesinin yeniden yapılmasını tetikler. Sunucu tarafındaki `MAX_CONNECTION_AGE` burada devreye girer (grpc-go'da artı eksi %10 jitter ve ayrı bir grace süresiyle `MaxConnectionAge`): her bağlantıyı sınırlı bir yaştan sonra sonlandıran sunucu, client'ları periyodik olarak yeniden çözümlemeye ve yeniden bağlanmaya zorlar; böylece yeni eklenen backend'ler client tarafında hiçbir değişiklik olmadan trafik alır.
+
+### Keepalive ve Uygulatılması
+
+gRPC, TCP'nin dakikalarca bildirmeyeceği ölü bağlantıları, örneğin bir NAT'ın ya da load balancer'ın boştaki durumu sessizce düşürdüğü durumları, tespit etmek için HTTP/2 PING frame'lerini kullanır. Keepalive'ı etkin olan bir client, `KEEPALIVE_TIME` kadar hareketsizlikten sonra bir PING gönderir ve `KEEPALIVE_TIMEOUT` (varsayılan 20 saniye) içinde onay gelmezse transport'u kapatır; gRPC core'da client keepalive'ı varsayılan olarak kapalıdır. Sunucular çok sık ping atan client'lara karşı kendini korur: varsayılan olarak bir sunucu, veri yokken ping'ler arasında en az 5 dakika bekler ve aktif çağrısı olmayan bağlantılardaki ping'leri reddeder. İki "ping strike"tan sonra sunucu `ENHANCE_YOUR_CALM` ve `too_many_pings` debug verisiyle GOAWAY gönderir ve bağlantıyı kapatır. Varsayılan uygulatmaya sahip bir sunucuya karşı 30 saniyelik bir client keepalive'ı, dolayısıyla, bağlantıları birkaç dakikada bir yok eden bir yapılandırmadır. Client ve sunucu ayarları birlikte seçilmelidir; bulut load balancer'ları gibi aracıların bulunduğu yollarda ise client keepalive'ı aracının idle timeout'undan kısa olmalıdır.
+
+:::tip[Keepalive'ı önce sunucu tarafından yapılandırın]
+Önce sunucunun uygulatma policy'sine (`MIN_RECV_PING_INTERVAL_WITHOUT_DATA` ve çağrısız ping'lere izin verilip verilmediği) karar verin, ardından her client'ın keepalive süresini bu minimumun üzerine ayarlayın. Yolda idle timeout'u olan bir aracı varsa client keepalive'ı sunucu minimumu ile o timeout arasında kalmalıdır; böyle bir aralık yoksa client'ı değil sunucunun uygulatmasını gevşetin. `too_many_pings` ya da `ENHANCE_YOUR_CALM` ile GOAWAY gösteren log'lar bu ayarların uyuşmadığı anlamına gelir.
+:::
+
+### Dengeleme Nerede Yapılır
+
+Bir HTTP/2 bağlantısı binlerce çağrı taşır; bu yüzden Kubernetes ClusterIP Service'i gibi bağlantıları dağıtan, bağlantı düzeyinde (layer 4) bir balancer neredeyse hiçbir şey dağıtmaz: her client tüm çağrılarını bağlandığı tek backend'e sabitler ve yeni backend'ler yalnızca yeni client'lardan trafik alır. Genel mekanizma ve belirtileri HTTP/2 sayfasında bağlantı yoğunlaşması başlığı altında anlatılır; gRPC üç çıkış yolu sunar. Layer 7 bir proxy (Envoy, Linkerd, gRPC farkındalığı olan bir bulut load balancer'ı) client'ın bağlantısını sonlandırır ve çağrı başına dengeler; bedeli fazladan bir hop'tur. Client tarafı dengeleme, Kubernetes headless Service'i için DNS gibi tüm backend adreslerini döndüren bir resolver ve channel içindeki `round_robin` ya da ağırlıklı policy'leri kullanır; varsayılan `pick_first` policy'si tek bir adrese bağlanır ve bunun için uygun değildir. Lookaside dengelemede client, endpoint'leri ve policy'yi xDS protokolleri üzerinden bir control plane'den alır; proxy'siz gRPC service mesh'leri bu şekilde çalışır. Bunlar arasındaki dengeler, endpoint listesinin ve sağlık durumunun kime ait olduğu dahil, [İstemci Taraflı ve Sunucu Taraflı Yük Dengeleme](/distributed-systems/tr/communication/load-balancing/client-vs-server-side/) ve [Envoy Proxy](/distributed-systems/tr/service-mesh/service-mesh-architecture/envoy-proxy/) sayfalarında ele alınır.
+
+DNS tabanlı client dengelemenin kendi gecikmesi vardır: gRPC resolver'ları DNS TTL'lerini izleyen bir zamanlayıcıyla değil, ağırlıklı olarak bir bağlantı başarısız olduğunda ya da kapatıldığında yeniden çözümleme yapar; dolayısıyla bir scale-out, bir şey bir bağlantıyı kapatana kadar mevcut client'lar için görünmezdir. Olağan çözüm sunucudaki `MAX_CONNECTION_AGE`'dir ve uçuştaki çağrılar için yalnızca kapanış GOAWAY üzerinden geçtiği için güvenlidir.
+
+## Diğer Sözleşmelere Karşı Production Dengeleri
+
+gRPC, servis sözleşmesi tanımlamanın diğer yollarıyla rekabet eder ve doğru seçim, client'ların kim olduğuna ve onlarla sunucu arasında ne bulunduğuna bağlıdır.
+
+| Yaklaşım | Sözleşme ve kodlama | Güçlü yanlar | Maliyetler | Ne zaman tercih edilmeli |
+|---|---|---|---|---|
+| gRPC + protobuf | Kod üretimli IDL; HTTP/2 üzerinde binary, uzunluk önekli mesajlar | Kompakt kodlama, tipli client'lar, deadline'lar, status code'lar, streaming, yerleşik retry ve dengeleme | HTTP cache'leri ve genel araçlar için opak; uçtan uca trailer'lı HTTP/2 gerekir; L4 dengeleme bozulur | Bir şema deposunu paylaşan ekiplerin sahip olduğu servisler arasındaki iç, yüksek hızlı, gecikmeye duyarlı çağrılar |
+| [REST](/distributed-systems/tr/communication/synchronous-protocols/rest/) + JSON | Kaynaklar ve HTTP semantiği; metin payload'lar; isteğe bağlı OpenAPI | Evrensel client'lar, HTTP caching, okunabilir trafik, olgun edge araçları | Daha büyük payload'lar, elle bakımı yapılan ya da üretilen client'lar, standart deadline yayılımı yok | Herkese açık ve partner API'leri, cache'lenebilir okumalar, tarayıcı client'ları |
+| gRPC-Web / Connect | Aynı protobuf sözleşmesi; tarayıcıların ve HTTP/1.1'in taşıyabileceği bir HTTP eşlemesi | Backend ve web client'ları için tek şema | Çeviri proxy'si ya da özel sunucu; tarayıcılardan sınırlı streaming | Ayrı bir REST katmanı olmadan bir gRPC backend'inin web frontend'leri |
+| [GraphQL](/distributed-systems/tr/communication/synchronous-protocols/graphql/) | Tipli şema; sorgu biçimini client seçer; JSON | Client'a göre şekillenen birleştirme, UI için daha az round trip | Sorgu maliyeti kontrolü, caching ve N+1 çözümü zordur | Çok sayıda backend varlığını birleştiren ürün arayüzleri |
+| Apache Thrift | Kod üretimli IDL; çeşitli transport'lar üzerinde binary ya da compact protokoller | Benzer verimlilik, daha eski ekosistemler | Daha küçük ekosistem, varsayılan olarak HTTP/2 semantiği yok | Mevcut Thrift altyapıları; yeni sistemler için nadiren seçilir |
+
+Tablo belirleyici bir soruyu gizler: çağrı yolunda gRPC'yi anlamayan bileşenler var mı? Her gRPC hatası bir HTTP 200'dür; dolayısıyla bir API gateway'in hata oranı dashboard'u, bir CDN ya da sağlığı HTTP status'a göre değerlendiren bir WAF, `grpc-status`'u okumadığı sürece bir kesinti sırasında kusursuz başarı görür. Araçlar bu boşluğun büyük kısmını kapatır (server reflection, `grpcurl`'ün yerel `.proto` dosyaları olmadan servis çağırmasını sağlar; gRPC'nin `grpc.client.attempt.duration` ve `grpc.server.call.duration` gibi OpenTelemetry metrikleri `grpc.method` ve `grpc.status` attribute'larını taşır), ama yoldaki her aracın gRPC farkındalığına sahip olması gerekir ve bu gerçek bir operasyon maliyetidir.
+
+Gizli ikinci soru şema yönetişimidir. Üretilmiş client'lar şemayı ekipler ve repository'ler arasında paylaşılan bir artefakta dönüştürür. gRPC'yi bir schema registry ya da merkezi repository, breaking-change kontrolü ve versiyonlama kuralı olmadan benimseyen organizasyonlar aynı `.proto` dosyasının birbirinden ayrışan kopyalarıyla karşılaşır ve bu, seçimi motive eden sözleşme katılığını ortadan kaldırır. Paket düzeyinde versiyonlama (`shop.v1`, `shop.v2`) ve alternatifleri [API Versiyonlama Stratejileri](/distributed-systems/tr/communication/synchronous-protocols/api-versioning/) sayfasında tartışılır.
+
+## gRPC Sistemlerinde Hata Modları
+
+### Deadline'sız Çağrılar ve Yayılmayan İptal
+
+En yıkıcı gRPC hatası bir protokol hatası değil, eksik bir deadline'dır. Bir bağımlılık yavaşladığında deadline'sız çağıranlar uçuştaki çağrıları sınırsız biçimde biriktirir; her biri bellek, bir thread ya da goroutine ve sıklıkla havuzdan alınmış bir veritabanı bağlantısı tutar; ta ki çağıranın kendi kaynakları tükenip ilgisiz istekleri de sunamaz hâle gelene kadar. Yayılmayan iptal daha sessiz bir varyant üretir: edge vazgeçmiştir, ama aşağı akış servisleri terk edilmiş istek üzerinde çalışmaya devam eder.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant E as Edge client
+    participant A as Order service
+    participant P as Pricing service
+    participant D as Pricing DB
+    E->>A: GetOrder, grpc-timeout 300m
+    A->>P: GetPrice, new context, no deadline
+    P->>D: query (DB is degraded, 4 s)
+    Note over E: 300 ms elapse
+    E-->>E: DEADLINE_EXCEEDED, user retries
+    E->>A: GetOrder (retry), grpc-timeout 300m
+    A->>P: GetPrice, no deadline again
+    P->>D: second query queued behind the first
+    Note over P,D: work for abandoned calls doubles per retry wave
+    Note over A: in-flight calls climb, threads and DB pool exhausted
+    D-->>P: first result after 4 s, nobody is waiting
+```
+*Bir hata zaman çizelgesi. Order servisi 2. adımda yeni bir context oluşturduğu için edge'in deadline'ı ve iptali pricing'e hiç ulaşmadı ve her kullanıcı retry'ı eskilerin arkasına tam maliyetli yeni bir sorgu ekledi.*
+
+Belirti, kendi CPU'su düşükken gecikmesi ve uçuştaki çağrı sayısı tırmanan bir servistir; ardından havuzlar boşaldıkça ilgisiz endpoint'ler başarısız olmaya başlar. Tespit; metot başına uçuştaki RPC gauge'larına, `CANCELLED` ile biten sunucu çağrılarının payına (yüksek değerler, client'ların sunucular bitirmeden vazgeçtiği anlamına gelir) ve `grpc.server.call.duration`'ın client'ların ayarladığı deadline'larla karşılaştırılmasına dayanır. Önlem; gelen ve giden tüm çağrılarda azami bir deadline uygulatan bir interceptor, gelen context'in her giden çağrıya iletilmesi ve döngülerde iptali kontrol eden, context'i veritabanı sürücülerine ileten handler kodudur. Böyle bir olaydan toparlanmak genellikle stres altındaki serviste load shedding gerektirir, çünkü yeni iş sunulabilmeden önce terk edilmiş işlerin birikiminin boşalması gerekir; bkz. [Yük Atma](/distributed-systems/tr/resilience/flow-control/load-shedding/).
+
+### Katmanlar Arasında Retry Amplifikasyonu
+
+Yerleşik retry'lar her hop'ta `maxAttempts: 3` yapılandırmayı kolaylaştırır. En derindeki servisin başarısız olduğu üç katmanlı bir çağrı zincirinde, edge'in üç denemesinin her biri orta katmanda üç deneme, bunların her biri de en altta üç deneme üretir: tek bir kullanıcı isteği için başarısız servise 27'ye kadar çağrı. Transparent retry'lar sayılmaz, ama yapılandırılmış retry'lar ve hedge'ler sayılır. Tespit, her katmandaki `grpc.client.attempt.started` sayısının çağrı sayısına oranıdır; bu oran sağlıklı bir sistemde 1,0'a yakın kalmalıdır ve olaylar sırasında keskin biçimde yükselir. Önlem; yalnızca tek bir katmanda (genellikle başarısız bağımlılığa en yakın olanda) retry yapmak, her yerde retry throttling'i etkinleştirmek, `grpc-retry-pushback-ms`'e uymak ve retry'ların daralan bir bütçeyi tüketmesi için uçtan uca deadline'ları korumaktır. Tetikleyici ortadan kalktıktan sonra bile bu tür sistemlerin neden ayağa kalkamadığı dahil daha geniş dinamikler [Retry Fırtınaları ve Metastabil Hatalar](/distributed-systems/tr/resilience/flow-control/retry-storms-metastable-failures/) sayfasında ele alınır.
+
+### Birkaç Backend'e Sabitlenen Yük
+
+Layer 4 bir Service arkasındaki ya da client tarafında `pick_first` kullanan bir deployment kalıcı bir dengesizlik gösterir: birkaç backend yüksek CPU'da, diğerleri boşta ve yeni scale-out edilmiş pod'lar hiçbir şey almıyor. Autoscaling bu durumda işe yaramayan kapasite ekler. Tespit, backend başına saniyedeki çağrı sayısını backend başına aktif bağlantılarla karşılaştırır ve yapılandırılmış LB policy'sini kontrol eder. Önlem, yukarıdaki üç yoldan biriyle çağrı başına dengeleme ve mevcut client'ların hepsi aynı anda değil kademeli olarak yeniden dengelenmesi için jitter'lı `MAX_CONNECTION_AGE`'dir.
+
+### Keepalive Uyumsuzluğu
+
+Varsayılan uygulatmaya sahip sunuculara karşı agresif keepalive ile yapılandırılmış client'lar bağlantılarını birkaç dakikada bir kaybeder. Sunucu düzgünce boşaltma yaptıysa böyle bir bağlantıdaki uçuştaki çağrılar tamamlanır, ama yeni çağrılar bir yeniden bağlanmaya denk gelir ve TLS ile her yeniden bağlanma el sıkışma gecikmesine mal olur. Bu yüzden belirti, yükle değil bağlantı sayılarıyla korelasyon gösteren periyodik gecikme sıçramaları ve `UNAVAILABLE` patlamalarıdır. Sinyaller GOAWAY sayaçları ve `too_many_pings` içeren sunucu log'larıdır. Düzeltmek için ayarları keepalive bölümünde anlatıldığı gibi hizalamak gerekir; grpc-go client'ları böyle bir bağlantı kesilmesinden sonra keepalive sürelerini ikiye katlar, bu da sorunu çözmek yerine kısmen gizler.
+
+### Mesaj Boyutu Limitleri
+
+gRPC implementasyonlarının çoğu, alınan mesajları varsayılan olarak 4 MiB ile sınırlar ve gönderilen mesajları sınırlamaz. Tüm satırları döndüren bir liste metodu testte çalışır ve bir tenant'ın verisi limiti aştığında production'da alıcı tarafta `RESOURCE_EXHAUSTED` ile başarısız olur; gönderici ise yanıtı oluşturma ve serileştirme işinin tamamını zaten yapmıştır. Tespit, bu status code'un belirli metotlarda ve tenant'larda yoğunlaşması ve sıkıştırılmış mesaj boyutu metrikleridir. Limiti yükseltmek, sorunu belleğe taşıyan kısa vadeli bir çözümdür: bir mesaj, handler onu görmeden önce tamamen buffer'lanır. Kalıcı çözüm, her mesajı sınırlayan sayfalama ya da server-streaming bir metottur.
+
+### gRPC Konuşmayan Aracılar
+
+Bir HTTP/1.1 proxy'si, yanlış yapılandırılmış bir ingress ya da bir load balancer kendi hata sayfasını döndürdüğünde client, 200 olmayan bir status ya da HTML gövdeli ve `grpc-status` içermeyen bir yanıt alır. gRPC client'ları bu durumda HTTP kodundan bir status sentezler: 401 `UNAUTHENTICATED`, 403 `PERMISSION_DENIED`, 404 `UNIMPLEMENTED` olur; 429, 502, 503 ve 504 `UNAVAILABLE` olur; 400 `INTERNAL`, geri kalan her şey ise `UNKNOWN` olur. Bir routing değişikliğinden sonra `UNIMPLEMENTED` sıçraması genellikle metodun ortadan kalktığını değil, bir proxy'nin 404 döndürdüğünü gösterir; beklenmeyen bir content type'tan bahseden mesajlarla gelen bir `UNAVAILABLE` sıçraması ise backend'i değil proxy'yi işaret eder. Tespit, hataları yalnızca koda göre değil status mesajına göre gruplamaktır; önlem, her hop'u HTTP/2 yetenekli ve trailer'ları koruyan hâle getirmek ve her ingress değişikliğinden sonra tüm yolu gerçek bir gRPC client'ıyla test etmektir.
+
+### Sessiz Şema Kırılması
+
+Yeniden kullanılan alan numaraları, `sint32`'ye çevrilen bir `int32`, sayısal bir tip için tekil ile repeated arasında değiştirilen bir alan ya da eski tüketicilerin imkânsız saydığı bir enum değeri; hepsi ayrıştırmadan geçer ve yukarıdaki danger notunun açıkladığı gibi hata yerine yanlış veri üretir. Sonradan tespit zordur: iş metriklerindeki anomaliler, aralık dışı değerler, tüketiciler sayıyorsa bilinmeyen enum sayaçları. Önleme ise mekaniktir: CI'da son yayınlanmış şemaya karşı breaking-change kontrolleri, silinen her alan için `reserved` ve yazıcılar yeni bir alan ya da değer üretmeye başlamadan önce okuyucuların yükseltildiği kademeli rollout'lar.
+
+| Hata | Belirti | Tespit | Önlem |
+|---|---|---|---|
+| Eksik deadline ya da kaybolan iptal | Uçuştaki çağrılar ve gecikme tırmanır, havuzlar tükenir, CPU düşük | Metot başına uçuştaki gauge'lar, sunucu `CANCELLED` payı | Uygulatılan deadline'lar, gelen context'i iletmek, iptal kontrolleri |
+| Retry amplifikasyonu | Başarısız katman normal yükün katlarını alır | Her katmanda çağrı başına deneme | Tek katmanda retry, throttling, pushback, uçtan uca deadline'lar |
+| Sabitlenmiş yük | Backend dengesizliği, yeni pod'lar boşta | Backend başına çağrılar ve bağlantılar | L7 ya da client tarafı dengeleme, jitter'lı azami bağlantı yaşı |
+| Keepalive uyumsuzluğu | Periyodik yeniden bağlanmalar ve `UNAVAILABLE` patlamaları | `too_many_pings`, GOAWAY sayaçları | Client keepalive'ını sunucu uygulatmasıyla hizalamak |
+| Mesaj çok büyük | Belirli metot ve tenant'larda `RESOURCE_EXHAUSTED` | Metoda göre status, mesaj boyutu metrikleri | Önce sayfalama ya da streaming, sonra limitler |
+| gRPC olmayan aracı | Tuhaf mesajlarla `UNIMPLEMENTED` ya da `UNAVAILABLE` | Status mesajına göre gruplanmış hatalar | Uçtan uca trailer'lı HTTP/2, yol testleri |
+| Şema kırılması | Yanlış değerler, hata yok | İş anomalileri, bilinmeyen enum sayıları | Breaking-change CI, `reserved`, yazıcılardan önce okuyucular |
+
+## gRPC'yi Seçmek
+
+Çağrının iki ucu da sizin kontrolünüzdeki servislerse, çağrı hızları kodlamanın ve bağlantı yeniden kullanımının önemli olacağı kadar yüksekse, gecikme bütçeleri birkaç hop boyunca deadline yayılımı gerektiriyorsa ve organizasyon şema yönetişimini işletebiliyorsa, yani paylaşılan bir şema deposu ya da registry, breaking-change kontrolleri ve dil başına yayınlanan üretilmiş client'lar varsa protobuf ile gRPC kullanın. Bölge içindeki iç east-west trafik, elle yazılmış client'ların saptığı çok dilli servis altyapıları ve iki yönden birinde streaming gerektiren çağrılar için doğal seçimdir. Yolun tamamen sizin kontrolünüzde olduğu ya da gRPC farkındalığı olan bir proxy veya service mesh arkasında bulunduğu, dolayısıyla çağrı başına dengelemenin, status farkındalıklı metriklerin ve trailer'ların uçtan uca çalıştığı durumlara da uyar.
+
+curl, tarayıcı ve HTTP caching bekleyen üçüncü tarafların tükettiği herkese açık API'lerin birincil arayüzü olarak gRPC kullanmayın; gRPC iç sözleşme olarak kalsa bile orada REST ya da transcode edilmiş JSON sunun. Çağrı yolu, eski proxy'ler, bazı WAF'lar ya da kurumsal çıkış proxy'leri gibi HTTP/2 ve trailer farkındalığı kazandıramayacağınız altyapılar içeriyorsa onu seçmeyin; aksi hâlde her hata başarı olarak raporlanır ya da yanıltıcı kodlara sentezlenir. Uzak çağrıları yerel gibi göstermek için benimsemeyin: stub'ları deadline, idempotency analizi ve status yönetimi olmadan yerel fonksiyonlar gibi kullanan bir ekip, yukarıdaki hata modlarını daha yüksek throughput ile yaşar. Okuyucularını sayamadığınız ve şemasını dağıtamadığınız veriler için, örneğin bilinmeyen gelecekteki araçların okuyacağı uzun vadeli arşivler için, şema verinin yanında saklanmadıkça protobuf kullanmayın; format kendini tanımlamaz (self-describing değildir).
+
+Tasarım tartışmalarında iki sınır tekrar tekrar karşınıza çıkar. gRPC bir mesajlaşma sistemi değildir: retry'lı unary bir çağrı yine de senkrondur ve çağıranın erişilebilirliğini çağrılanınkine bağlar; çağrılan çökmüşken de ayakta kalması gereken iş bir kuyruğa ya da log'a aittir ve bu karşılaştırma [Mesaj Kuyruğu ve Event Streaming](/distributed-systems/tr/communication/async-messaging/message-queue-vs-event-streaming/) sayfasında yapılır. Protobuf da gRPC'ye bağlı değildir: Kafka topic'lerindeki mesajlar için ve depolamada da aynı ölçüde kullanılır; orada yukarıdaki uyumluluk kuralları aynı güçle geçerlidir ve schema registry pratikleri isteğe bağlı olmaktan çıkıp zorunlu hâle gelir.
+
+## Further Reading
+
+- gRPC Authors, *gRPC over HTTP2* (PROTOCOL-HTTP2.md), grpc/grpc repository dokümantasyonu. Normatif wire eşlemesi: header'lar, uzunluk önekli mesajlar, trailer'lar ve hata kodu eşlemesi.
+- Google, *Protocol Buffers Encoding* ve *Language Guide (proto 3)*, protobuf.dev. Wire type'lar, varint'ler, ZigZag, birleştirme kuralları, alan numarası ve tip uyumluluğu kuralları.
+- Noah Eisen ve Eric Gribkoff, *gRFC A6: gRPC Retry Design*, grpc/proposal tasarım dokümanı. Retry ve hedging policy'leri, commit noktası, throttling ve pushback.
+- gRPC Authors, *Keepalive User Guide for gRPC Core* ve *gRPC Connection Backoff Protocol*, grpc/grpc repository dokümantasyonu.
+- William Morgan, *gRPC Load Balancing on Kubernetes without Tears*, Kubernetes Blog, 2018.
+- Betsy Beyer, Chris Jones, Jennifer Petoff ve Niall Richard Murphy (ed.), *Site Reliability Engineering*, O'Reilly, 2016, "Addressing Cascading Failures" bölümü (deadline yayılımı ve retry amplifikasyonu).

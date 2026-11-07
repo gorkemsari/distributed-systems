@@ -29,7 +29,31 @@ A topic is not "covered" until the page answers all of the following. Use this a
 
 If any item cannot be answered for a topic, state why in one sentence rather than silently skipping it.
 
-**Length:** 2,000-3,500 words of prose per page (excluding code, diagrams, tables, frontmatter). Deep algorithmic topics (Raft, Paxos, CRDTs, Spanner, consistency models) may reach 4,500. Never pad to reach the target; if the topic genuinely needs less, cover more mechanism, edge cases, and failure scenarios before concluding that it is short.
+### 2.1 Length follows content: depth tiers
+
+Length is an outcome of the depth standard, never a target. The quality bar is the professional depth a senior engineer needs; word count only flags when a page is too thin, too padded, or too broad. Prose is counted excluding code, diagrams, tables, and frontmatter.
+
+| Tier | EN prose | Diagrams | Asides | Use when |
+|---|---|---|---|---|
+| `standard` | 3,000-4,500 | 3-6 | 2-3 | The ten depth items fit at full professional depth |
+| `deep` | 4,500-7,000 | 3-8 | 2-4 | Full depth genuinely needs more room (see below) |
+
+**Choosing the tier.** The writer decides per page, at writing time, from the content and not from the topic's name. Before writing, outline what the page must contain to satisfy section 2: mechanism steps, correctness argument, worked example, real-system variants, failure modes, decision guidance. Choose `deep` when that outline cannot be covered at full depth within 4,500 words, typically because of one or more of:
+
+- a multi-phase algorithm whose correctness depends on each phase (consensus, commit protocols, isolation anomalies);
+- several real systems that implement the mechanism in materially different ways, each with operational consequences;
+- many distinct failure modes, each needing its own trigger, symptoms, detection, and recovery;
+- a formal model or proof whose intuition cannot be compressed without becoming wrong.
+
+A topic is not `deep` because it is famous, important, or because more could be said. If the outline fits in 4,500, the page is `standard`.
+
+**Never cut substance to meet a number; never pad to reach one.** If a well-written page lands at 5,000 words because the content requires it, it is a `deep` page at 5,000, not a `standard` page cut to 4,500. When a draft is over its tier's range, remove in this order: repetition and restatement, transitions and framing sentences, secondary examples that illustrate an already illustrated point, explanations of adjacent topics that belong to another canonical page. Never remove mechanism steps, the correctness argument, the worked example, failure modes, decision guidance, or the asides that carry production warnings.
+
+**Padding check for `deep` pages.** Every section must add information no other section contains; no paragraph may restate another; no adjacent topic may be re-explained instead of linked. A `deep` page that fails this check is a `standard` page with filler.
+
+**Above 7,000 words** the page is covering more than one canonical topic. Do not exceed 7,000: write the page around the core of its own topic, link to the rest, and record a split proposal (what to split out and why) for the owner.
+
+**Below 3,000 words**, before accepting a short page, check the depth standard again: most short pages are missing failure modes, real-system behavior, or a worked example. Below 2,000 words a topic page is incomplete.
 
 ---
 
@@ -66,7 +90,7 @@ Target 4-6 `##` sections (excluding Further Reading). `###` for subsections; `##
 
 ## 5. DIAGRAMS (PRIMARY EXPLANATORY TOOL)
 
-Diagrams carry the structural explanation; prose carries the reasoning. Every page has **3-6 Mermaid diagrams** using **at least two different diagram types**.
+Diagrams carry the structural explanation; prose carries the reasoning. Every topic page has **3-6 Mermaid diagrams** (up to 8 on `deep` pages, see section 2.1) using **at least two different diagram types**.
 
 ### 5.1 Diagram types and when to use them
 
@@ -113,7 +137,7 @@ Code is used only when it is the clearest way to show something (a config shape,
 
 **Tables:** At least one comparison table per page. For tool/pattern/algorithm comparisons, include a "When to prefer" column. Tables may also be used for parameter references (parameter, default, effect, tuning guidance) and failure-mode matrices (failure, symptom, detection, mitigation).
 
-**Asides:** 2-3 per page, chosen deliberately. Optional custom titles are supported: `:::caution[Title]`.
+**Asides:** 2-3 per page (up to 4 on `deep` pages), chosen deliberately. Optional custom titles are supported: `:::caution[Title]`.
 
 - `:::note` — supplementary definitions or cross-references that would interrupt flow.
 - `:::tip` — non-obvious production insights.
@@ -178,8 +202,8 @@ lastUpdated: 2026-11-03
 Before delivering, verify silently:
 
 - All 10 items of the depth standard are addressed.
-- Prose word count is within target (excluding code/diagrams/tables).
-- 3-6 diagrams, at least two types, each with caption and walkthrough paragraph.
+- The depth tier is chosen from the content (section 2.1); prose word count is within that tier's range; nothing substantive was cut to fit and nothing was added to fill.
+- Diagrams within the tier's range, at least two types, each with caption and walkthrough paragraph.
 - 0-2 code blocks, each at most ~20 lines.
 - At least one comparison table, 2-3 asides, one numeric worked example, one failure timeline.
 - All fences tagged, balanced, ASCII-only.
@@ -250,4 +274,4 @@ No asides are required on overview pages, and `## Further Reading` is optional.
 
 ## 15. QUALITY REFERENCE
 
-`authoring/examples/{en,tr}/scaling-dilemma.mdx` is the quality reference for topic pages: match its depth, prose-to-diagram ratio, numeric rigor, honesty about illustrative numbers, and tone, and use the Turkish page as the reference for terminology and natural phrasing. Do not copy its section structure, headings, diagram choices, or table layouts; derive those from each topic.
+`authoring/examples/{en,tr}/scaling-dilemma.mdx` is the quality reference for topic pages (a `standard`-tier page; `deep` pages keep the same density, not a looser one): match its depth, prose-to-diagram ratio, numeric rigor, honesty about illustrative numbers, and tone, and use the Turkish page as the reference for terminology and natural phrasing. Do not copy its section structure, headings, diagram choices, or table layouts; derive those from each topic.
