@@ -2,7 +2,7 @@
 
 > A comprehensive, evolving handbook on designing, scaling, and operating distributed systems and microservices architecture, published in English and Turkish.
 
-[![Published: 63 of 335 pages](https://img.shields.io/badge/Published-63%2F335-2ea44f.svg)](https://gorkemsari.github.io/distributed-systems/en/) <!-- PROGRESS-BADGE -->
+[![Published: 63 of 335 pages](https://img.shields.io/badge/Published-63_of_335_pages-2ea44f.svg)](https://gorkemsari.github.io/distributed-systems/en/) <!-- PROGRESS-BADGE -->
 [![Deploy to GitHub Pages](https://github.com/gorkemsari/distributed-systems/actions/workflows/deploy.yml/badge.svg)](https://github.com/gorkemsari/distributed-systems/actions/workflows/deploy.yml)
 [![Built with Astro Starlight](https://img.shields.io/badge/Built_with-Astro_Starlight-blue.svg)](https://starlight.astro.build/)
 [![Code: MIT](https://img.shields.io/badge/Code-MIT-blue.svg)](LICENSE)

@@ -123,7 +123,9 @@ def main():
     _, tail = rest.split(END, 1)
     text = f"{head}{START}\n{body}\n{END}{tail}"
     badge = (f"[![Published: {done} of {total} pages]"
-             f"(https://img.shields.io/badge/Published-{done}%2F{total}-2ea44f.svg)]({SITE}/en/)")
+             f"(https://img.shields.io/badge/Published-{done}_of_{total}_pages-2ea44f.svg)]({SITE}/en/)")
+    # No "/" (or %2F) in the badge path: GitHub's image proxy decodes %2F and
+    # splits the shields.io path, which returns 404. "_" renders as a space.
     lines = text.split("\n")
     for i, line in enumerate(lines):
         if line.rstrip().endswith(BADGE_MARKER):
