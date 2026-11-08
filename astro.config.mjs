@@ -2,12 +2,56 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import starlightThemeRapide from 'starlight-theme-rapide'
 import sitemap from '@astrojs/sitemap';
+import rehypeMermaidThemes from './src/plugins/rehype-mermaid-themes.mjs';
+
+// Mermaid diagrams are rendered to SVG at build time when MERMAID_SSR=1 (set in
+// the GitHub Actions deploy workflow, which installs Chromium for rendering).
+// Without it (local dev, scheduled authoring runs) the diagrams fall back to
+// client-side rendering so pages still show them.
+const MERMAID_SSR = process.env.MERMAID_SSR === '1';
+
+const mermaidPasses = [
+  [rehypeMermaidThemes, { light: { theme: 'default' }, dark: { theme: 'dark' } }],
+];
+
+const mermaidClientScript = {
+  tag: 'script',
+  attrs: { type: 'module' },
+  content: [
+    "import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';",
+    "mermaid.initialize({ startOnLoad: false, theme: 'dark' });",
+    "function decodeHTML(str) { const txt = document.createElement('textarea'); txt.innerHTML = str; return txt.value; }",
+    "function getMermaidSource(pre) {",
+    "  const lines = pre.querySelectorAll('.ec-line');",
+    "  if (lines.length > 0) { return decodeHTML(Array.from(lines).map(l => l.textContent).join(String.fromCharCode(10))); }",
+    "  return decodeHTML(pre.querySelector('code').textContent);",
+    "}",
+    "function renderMermaid() {",
+    "  document.querySelectorAll('pre[data-language=\"mermaid\"]').forEach((pre) => {",
+    "    if (pre.closest('div.mermaid')) return;",
+    "    const source = getMermaidSource(pre);",
+    "    const div = document.createElement('div');",
+    "    div.className = 'mermaid not-content';",
+    "    div.textContent = source;",
+    "    const wrapper = pre.closest('.expressive-code') ?? pre;",
+    "    wrapper.insertAdjacentElement('afterend', div);",
+    "    wrapper.style.display = 'none';",
+    "  });",
+    "  mermaid.run({ nodes: document.querySelectorAll('div.mermaid:not([data-processed])') });",
+    "}",
+    "document.addEventListener('DOMContentLoaded', renderMermaid);",
+    "document.addEventListener('astro:page-load', renderMermaid);",
+  ].join("\n"),
+};
 
 export default defineConfig({
   site: 'https://gorkemsari.github.io',
   base: '/distributed-systems',
   redirects: {
     '/': '/distributed-systems/en/'
+  },
+  markdown: {
+    rehypePlugins: MERMAID_SSR ? mermaidPasses : [],
   },
   integrations: [
     sitemap({
@@ -21,6 +65,7 @@ export default defineConfig({
     }),
     starlight({
       plugins: [starlightThemeRapide()],
+      customCss: ['./src/styles/mermaid.css'],
       title: 'Distributed Systems Handbook',
       defaultLocale: 'en',
       locales: {
@@ -54,35 +99,7 @@ export default defineConfig({
         { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
         { tag: 'meta', attrs: { property: 'og:image:alt', content: 'Distributed Systems Handbook' } },
         { tag: 'meta', attrs: { name: 'twitter:image', content: 'https://gorkemsari.github.io/distributed-systems/og-image.png' } },
-        {
-          tag: 'script',
-          attrs: { type: 'module' },
-          content: [
-            "import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';",
-            "mermaid.initialize({ startOnLoad: false, theme: 'dark' });",
-            "function decodeHTML(str) { const txt = document.createElement('textarea'); txt.innerHTML = str; return txt.value; }",
-            "function getMermaidSource(pre) {",
-            "  const lines = pre.querySelectorAll('.ec-line');",
-            "  if (lines.length > 0) { return decodeHTML(Array.from(lines).map(l => l.textContent).join(String.fromCharCode(10))); }",
-            "  return decodeHTML(pre.querySelector('code').textContent);",
-            "}",
-            "function renderMermaid() {",
-            "  document.querySelectorAll('pre[data-language=\"mermaid\"]').forEach((pre) => {",
-            "    if (pre.closest('div.mermaid')) return;",
-            "    const source = getMermaidSource(pre);",
-            "    const div = document.createElement('div');",
-            "    div.className = 'mermaid not-content';",
-            "    div.textContent = source;",
-            "    const wrapper = pre.closest('.expressive-code') ?? pre;",
-            "    wrapper.insertAdjacentElement('afterend', div);",
-            "    wrapper.style.display = 'none';",
-            "  });",
-            "  mermaid.run({ nodes: document.querySelectorAll('div.mermaid:not([data-processed])') });",
-            "}",
-            "document.addEventListener('DOMContentLoaded', renderMermaid);",
-            "document.addEventListener('astro:page-load', renderMermaid);",
-          ].join("\n"),
-        },
+        ...(MERMAID_SSR ? [] : [mermaidClientScript]),
       ],
       sidebar: [
 

@@ -75,19 +75,23 @@ Label every illustrative number as illustrative.
 2. Build the site: `pnpm install --frozen-lockfile` (install pnpm with `npm i -g pnpm`
    if it is missing), then `pnpm build`. A failed build is an error, the same as a
    `check.py` error: read the build log, find the page that broke, and fix it.
-   `astro build` compiles MDX but does not render Mermaid, so keep diagram syntax
-   conservative: quote labels with special characters and use only syntax shown in
-   the instruction and examples.
-3. Fix every `ERROR` and re-run until it prints `PASS`. Read every `WARN` and fix it
+   This local build does not render Mermaid; production does, at build time.
+3. Render every Mermaid block of both pages with the Mermaid CLI, for example by
+   writing each block to a `.mmd` file and running `mmdc -i block.mmd -o block.svg`
+   (install it with `npm i -g @mermaid-js/mermaid-cli` if `mmdc` is missing). Any
+   block that fails to render is an error: in production a diagram that fails is
+   published as raw code. Keep diagram syntax conservative: quote labels with
+   special characters and use only syntax shown in the instruction and examples.
+4. Fix every `ERROR` and re-run until it prints `PASS`. Read every `WARN` and fix it
    when it points at a real problem (for example a low TR/EN word ratio usually means
    the translation dropped content).
-4. Then review the English page against the pre-delivery self-check and the depth
+5. Then review the English page against the pre-delivery self-check and the depth
    standard in the instruction, and fix what falls short. For a `deep` page, also run
    the padding check from section 2.1: every section adds new information, no paragraph
    restates another, and no adjacent topic is re-explained instead of linked. If it
    fails, the page is `standard` with filler: remove the filler and re-classify. Check the Turkish page for
    natural phrasing, terminology that matches the sidebar, and nothing omitted.
-5. If after three fix rounds `check.py` or the build still fails, do not commit the
+6. If after three fix rounds `check.py`, the build, or a diagram render still fails, do not commit the
    pages. Discard the page changes (`git checkout -- src/`), set the queue row to
    `failed` with a one-line reason in `Note`, log it, commit the queue and log only with
    the message `chore(queue): <page title> failed [skip ci]`, push, and stop.

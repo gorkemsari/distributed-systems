@@ -23,3 +23,14 @@ Operating it:
 - Change how runs behave: edit `RUN.md`; the scheduled task only points to it.
 - Review: read new pages on the live site; `git log` on `main` lists them by title. To
   revert a page, `git revert` its commit (this redeploys) and set its row back to `todo`.
+
+Mermaid diagrams:
+
+- Production renders every diagram to inline SVG at build time (light and dark variants,
+  switched by the site theme), so readers download no Mermaid JavaScript. This runs in
+  the deploy workflow with `MERMAID_SSR=1`; see `src/plugins/rehype-mermaid-themes.mjs`.
+- Rendered SVGs are cached by content in `.cache/mermaid` (restored between CI builds).
+- Local `pnpm build` / `pnpm dev` without `MERMAID_SSR=1` falls back to client-side
+  rendering. To preview production output locally: `MERMAID_SSR=1 pnpm build`.
+- A diagram that fails to render is published as a code block and the deploy run shows a
+  "Mermaid" warning annotation.
