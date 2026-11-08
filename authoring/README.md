@@ -13,6 +13,7 @@ triggers the GitHub Pages deploy; queue-only commits (failed runs, empty queue) 
 | `log.md` | One line per run |
 | `check.py` | Validator: `python3 authoring/check.py <slug> --type <type> --depth <tier>` |
 | `build_queue.py` | Rebuilds `queue.md` from `astro.config.mjs`, keeping statuses |
+| `update_changelog.py` | Rebuilds the What's New pages (EN/TR) and the RSS feeds from `queue.md` |
 | `update_readme.py` | Rebuilds the Roadmap & Progress Tracker in the repo `README.md` from the sidebar and `queue.md` |
 
 Operating it:
@@ -21,7 +22,8 @@ Operating it:
 - Depth: each run picks `standard` (3,000-4,500 words) or `deep` (4,500-7,000) per topic page and records it in the `Depth` column; `deep` pages carry a `Deep because:` justification in `log.md`. Review those justifications, and treat any split proposal in the log as a sidebar decision for you.
 - Skip a page: set it to `done` (or move it lower by editing the file).
 - After changing the sidebar: run `python3 authoring/build_queue.py`, then
-  `python3 authoring/update_readme.py`, and commit.
+  `python3 authoring/update_readme.py` and `python3 authoring/update_changelog.py`, and commit.
+- Sidebar entries outside the numbered parts (such as What's New) are not handbook pages and never enter the queue.
 - Change how runs behave: edit `RUN.md`; the scheduled task only points to it.
 - Review: read new pages on the live site; `git log` on `main` lists them by title. To
   revert a page, `git revert` its commit (this redeploys) and set its row back to `todo`.

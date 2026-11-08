@@ -44,8 +44,11 @@ def parse(text):
                 typ = "chapter-overview"
             else:
                 typ = "topic"
-            entries.append({"type": typ, "slug": value, "label": label,
-                            "tr": pending.get("tr", ""), "part": part, "chapter": chapter})
+            # Entries outside the numbered parts (e.g. "What's New") are site pages
+            # maintained by scripts, not handbook pages to generate.
+            if part is not None:
+                entries.append({"type": typ, "slug": value, "label": label,
+                                "tr": pending.get("tr", ""), "part": part, "chapter": chapter})
             pending = {}
             continue
         # group headers carry label + tr but no slug

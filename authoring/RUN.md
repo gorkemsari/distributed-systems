@@ -104,7 +104,9 @@ Label every illustrative number as illustrative.
    `python3 authoring/build_queue.py astro.config.mjs authoring/queue.md` to refresh
    the progress line (it preserves statuses). Then run
    `python3 authoring/update_readme.py` to tick the page in the README's Roadmap &
-   Progress Tracker (it rebuilds the tracker from the sidebar and the queue).
+   Progress Tracker (it rebuilds the tracker from the sidebar and the queue). Then run
+   `python3 authoring/update_changelog.py` to add the page to the What's New pages and
+   the RSS feeds.
 2. Append one line to `authoring/log.md`:
    `- <date> <time> <slug>: done, <tier>, EN <n> words, <diagrams> diagrams` plus any
    decision worth knowing (an omitted unverifiable fact, a scope choice).
@@ -113,8 +115,9 @@ Label every illustrative number as illustrative.
    correctness arguments, four production implementations with different failure
    behavior). For a page above 6,000 words or one that hit 7,000, add the split proposal
    or state why the topic cannot be split.
-3. Commit only the two page files, `authoring/queue.md`, `authoring/log.md`, and
-   `README.md`. The
+3. Commit only the two page files, `authoring/queue.md`, `authoring/log.md`,
+   `README.md`, and the files `update_changelog.py` rewrites
+   (`src/content/docs/{en,tr}/whats-new.mdx`, `public/rss.xml`, `public/rss-tr.xml`). The
    commit subject is the page title exactly as written in the English frontmatter
    `title`, without quotes (for example `The Scaling Dilemma: Vertical vs. Horizontal
    Scaling`). The commit body is one line: `<slug> | <type> | <tier> | EN <n> words`.
