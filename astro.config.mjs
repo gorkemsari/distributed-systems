@@ -21,7 +21,7 @@ export default defineConfig({
     }),
     starlight({
       plugins: [starlightThemeRapide()],
-      title: 'Distributed Systems & Microservices Architecture',
+      title: 'Distributed Systems Handbook',
       defaultLocale: 'en',
       locales: {
         en: {
