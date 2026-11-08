@@ -173,6 +173,7 @@ lastUpdated: 2026-11-03
 - `title`: the topic title from the index **without** the numeric prefix. For overview pages, use the chapter or part label without its numbering (e.g. `From Monoliths to Distributed Systems`, `Foundations & The Laws of Physics`).
 - `lastUpdated`: the current date provided in the conversation, format `yyyy-mm-dd`, **unquoted** (Starlight expects a date).
 - Quote `title`/`description` only if they contain `:` or other YAML-special characters.
+- `description`: one sentence of **120-160 characters** in each language (search engines truncate longer snippets). Say what the reader will learn, using the page's most specific terms; do not repeat the title. Write the Turkish description natively within the same limit rather than translating the English one word for word.
 
 ### 9.2 MDX safety
 
@@ -208,6 +209,7 @@ Before delivering, verify silently:
 - At least one comparison table, 2-3 asides, one numeric worked example, one failure timeline.
 - All fences tagged, balanced, ASCII-only.
 - No MDX-breaking characters in prose.
+- `description` is 120-160 characters in both EN and TR.
 - All cross-reference slugs exist in the sidebar; links are locale-correct.
 - No fabricated numbers, incidents, config keys, or citations.
 - EN and TR pages are structurally identical.

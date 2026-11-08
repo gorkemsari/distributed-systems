@@ -64,6 +64,15 @@ def analyze(path, locale, slugs):
             errors.append(f"frontmatter: missing {key}")
     if not re.search(r"^lastUpdated: \d{4}-\d{2}-\d{2}\s*$", fm, re.M):
         errors.append("frontmatter: lastUpdated must be an unquoted yyyy-mm-dd date")
+    desc = re.search(r"^description:\s*(.*)$", fm, re.M)
+    if desc:
+        dv = desc.group(1).strip()
+        if dv[:1] in "\"'" and dv[-1:] == dv[:1]:
+            dv = dv[1:-1]
+        if len(dv) > 160:
+            errors.append(f"frontmatter: description is {len(dv)} characters (max 160)")
+        elif len(dv) < 110:
+            warnings.append(f"frontmatter: description is {len(dv)} characters (target 120-160)")
     title = re.search(r"^title:\s*(.*)$", fm, re.M)
     if title and re.match(r"""^["']?\d+(\.\d+)*\.?\s""", title.group(1)):
         errors.append("frontmatter: title must not carry the numeric prefix")
