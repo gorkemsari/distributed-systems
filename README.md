@@ -1,25 +1,36 @@
-# Distributed Systems & Microservices Architecture Guide
+# Distributed Systems Handbook
 
-> A comprehensive, evolving handbook on designing, scaling, and maintaining distributed systems and modern microservices.
+> A comprehensive, evolving handbook on designing, scaling, and operating distributed systems and microservices architecture, published in English and Turkish.
 
-[![Status: Work in Progress](https://img.shields.io/badge/Status-Work_in_Progress-orange.svg)]()
-[![Built with Astro](https://img.shields.io/badge/Built_with-Astro_Starlight-blue.svg)](https://starlight.astro.build/)
+<!-- PROGRESS-BADGE:START -->[![Published: 63 of 335 pages](https://img.shields.io/badge/Published-63%2F335-2ea44f.svg)](https://gorkemsari.github.io/distributed-systems/en/)<!-- PROGRESS-BADGE:END -->
+[![Deploy to GitHub Pages](https://github.com/gorkemsari/distributed-systems/actions/workflows/deploy.yml/badge.svg)](https://github.com/gorkemsari/distributed-systems/actions/workflows/deploy.yml)
+[![Built with Astro Starlight](https://img.shields.io/badge/Built_with-Astro_Starlight-blue.svg)](https://starlight.astro.build/)
+[![Code: MIT](https://img.shields.io/badge/Code-MIT-blue.svg)](LICENSE)
+[![Content: CC BY-NC-SA 4.0](https://img.shields.io/badge/Content-CC_BY--NC--SA_4.0-lightgrey.svg)](LICENSE-CONTENT)
 
-## 📖 About This Guide
+**Read online:** [English](https://gorkemsari.github.io/distributed-systems/en/) · [Türkçe](https://gorkemsari.github.io/distributed-systems/tr/)
 
-This repository serves as the source code and content tracker for an in-depth digital handbook on **Distributed Systems and Microservices Architecture**. It bridges the critical gap between theoretical academic concepts and real-world engineering challenges.
+## 📖 About This Handbook
 
-Designed as a practitioner's guide, it moves beyond basic tutorials to focus on pragmatic trade-offs, advanced architectural patterns (such as CQRS, Event Sourcing, Sagas, and the Outbox pattern), and production-grade system design. The handbook systematically explores the entire lifecycle of distributed systems-from low-level data partitioning, consensus, and asynchronous communication to Kubernetes orchestration, Service Mesh integration, zero-trust security, and chaos engineering.
+This repository is the source of an in-depth digital handbook on **distributed systems and microservices architecture**, published in English and Turkish. It bridges the gap between theoretical academic concepts and real-world engineering challenges.
 
-Whether you are safely decomposing monolithic architectures, building high-throughput data processing pipelines, or engineering resilient infrastructure at scale, this guide aims to provide structured, deeply technical, and easily digestible knowledge grounded in industry-standard case studies.
+Designed as a practitioner's reference, it moves beyond basic tutorials to focus on pragmatic trade-offs, advanced architectural patterns (such as CQRS, Event Sourcing, Sagas, and the Outbox pattern), and production-grade system design. The handbook systematically explores the entire lifecycle of distributed systems, from low-level data partitioning, consensus, and asynchronous communication to Kubernetes orchestration, service mesh integration, zero-trust security, and chaos engineering.
 
-Read the live version here: **[gorkemsari.github.io/distributed-systems](https://gorkemsari.github.io/distributed-systems)**
+Whether you are safely decomposing a monolith, building high-throughput data pipelines, or engineering resilient infrastructure at scale, this handbook aims to provide structured, deeply technical knowledge grounded in real systems and public case studies.
+
+## ✍️ How This Handbook Is Written
+
+Pages are drafted by an AI model (Claude, by Anthropic) through a scheduled pipeline that publishes one page at a time, in English and Turkish. The author defines the scope, structure, and writing standards and maintains the pipeline; the specification every page must follow is [`authoring/project-instruction.md`](authoring/project-instruction.md).
+
+Before a page is published it must pass automated checks: structure and length rules, valid cross-references, matching English and Turkish structure, a full site build, and rendering of every diagram. Version-specific facts are checked against current sources while drafting, and illustrative numbers are labeled as illustrative. Pages are published without manual review and may be revised later, so errors are possible: if you find one, please [open an issue](https://github.com/gorkemsari/distributed-systems/issues).
+
+The pipeline itself, including the generation queue and the run log, lives in [`authoring/`](authoring/).
 
 ---
 
 ## 🚀 Roadmap & Progress Tracker
 
-The guide is divided into comprehensive parts. Rather than listing all topics here, below is the high-level progress. For the full, interactive table of contents, please visit the [official website](https://gorkemsari.github.io/distributed-systems).
+Progress is tracked automatically from the site navigation and the generation queue. Published pages are ticked and link to the live site.
 
 <!-- ROADMAP:START (generated by authoring/update_readme.py, do not edit by hand) -->
 **Progress:** 63 of 335 pages published (19%). Each page is published in English and Turkish; overview pages are counted.
@@ -524,14 +535,15 @@ The guide is divided into comprehensive parts. Rather than listing all topics he
 </details>
 <!-- ROADMAP:END -->
 
+---
 
 ## 🛠️ Tech Stack & Local Development
 
-This documentation site is built using [Astro](https://astro.build/) and the [Starlight](https://starlight.astro.build/) theme. 
+The site is built with [Astro](https://astro.build/) and [Starlight](https://starlight.astro.build/), with diagrams written in [Mermaid](https://mermaid.js.org/). Every push to `main` builds the site and deploys it to GitHub Pages through GitHub Actions.
 
 ### Prerequisites
-- Node.js (v18 or higher)
-- pnpm, npm, or yarn
+- Node.js 22 or newer
+- [pnpm](https://pnpm.io/)
 
 ### Running Locally
 
@@ -548,14 +560,35 @@ This documentation site is built using [Astro](https://astro.build/) and the [St
 
 3. **Start the development server**
    ```bash
-   pnpm start
+   pnpm dev
    ```
-   The site will be available at `http://localhost:4321/distributed-systems`
+   The site will be available at `http://localhost:4321/distributed-systems/`.
+
+### Production Build
+
+```bash
+pnpm build      # output in dist/
+pnpm preview    # serve the built site locally
+```
+
+In production, Mermaid diagrams are rendered to inline SVG at build time, so readers download no diagram JavaScript. Local builds render diagrams in the browser instead. To reproduce the production output, install Chromium once and build with `MERMAID_SSR=1`:
+
+```bash
+pnpm exec playwright install chromium
+MERMAID_SSR=1 pnpm build
+```
 
 ---
 
 ## 🤝 Contributing
-While this is primarily a personal handbook and reference, suggestions, typo fixes, and discussions are highly welcome! Feel free to open an issue or submit a Pull Request.
+
+While this is primarily a personal handbook and reference, corrections, suggestions, and discussions are very welcome. Feel free to [open an issue](https://github.com/gorkemsari/distributed-systems/issues) or submit a pull request.
 
 ## 📄 License
-Licensed under the MIT License.
+
+This repository is dual-licensed:
+
+- **Content** (the handbook pages under [`src/content/docs/`](src/content/docs/), including their text and diagrams, and `public/og-image.png`) is licensed under [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)](LICENSE-CONTENT). You may share and adapt it for non-commercial purposes, with attribution, under the same license. For commercial use, please get in touch.
+- **Code** (everything else, including the site configuration, plugins, and the authoring scripts) is licensed under the [MIT License](LICENSE).
+
+© 2026 Görkem Sarı
