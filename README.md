@@ -584,7 +584,13 @@ MERMAID_SSR=1 pnpm build
 
 ## 🤝 Contributing
 
-While this is primarily a personal handbook and reference, corrections, suggestions, and discussions are very welcome. Feel free to [open an issue](https://github.com/gorkemsari/distributed-systems/issues) or submit a pull request.
+While this is primarily a personal handbook and reference, corrections, suggestions, and discussions are very welcome:
+
+- **Found an error?** [Open an issue](https://github.com/gorkemsari/distributed-systems/issues/new/choose) using the content error form, or use the "Edit this page" link at the bottom of any page to propose a fix.
+- **Have a question or an idea?** Start a thread in [Discussions](https://github.com/gorkemsari/distributed-systems/discussions).
+- **Missing a topic?** Suggest it with the topic suggestion form.
+
+English and Turkish are both welcome.
 
 ## 📄 License
 
