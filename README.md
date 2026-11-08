@@ -10,6 +10,8 @@
 
 **Read online:** [English](https://gorkemsari.github.io/distributed-systems/en/) · [Türkçe](https://gorkemsari.github.io/distributed-systems/tr/)
 
+⭐ If you find this handbook useful, starring the repository helps other engineers discover it.
+
 ## 📖 About This Handbook
 
 This repository is the source of an in-depth digital handbook on **distributed systems and microservices architecture**, published in English and Turkish. It bridges the gap between theoretical academic concepts and real-world engineering challenges.

@@ -66,6 +66,12 @@ export default defineConfig({
     starlight({
       plugins: [starlightThemeRapide()],
       customCss: ['./src/styles/mermaid.css'],
+      components: {
+        Footer: './src/components/Footer.astro',
+      },
+      editLink: {
+        baseUrl: 'https://github.com/gorkemsari/distributed-systems/edit/main/',
+      },
       title: 'Distributed Systems Handbook',
       defaultLocale: 'en',
       locales: {
