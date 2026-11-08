@@ -48,6 +48,12 @@ export default defineConfig({
             content: 'mqcQWNp5X5PUrPO0hj6DiALBxOH3x8Ijk1bfUpFCEyI',
           },
         },
+        // Default share image for every page (source: authoring/assets/og-image.html)
+        { tag: 'meta', attrs: { property: 'og:image', content: 'https://gorkemsari.github.io/distributed-systems/og-image.png' } },
+        { tag: 'meta', attrs: { property: 'og:image:width', content: '1200' } },
+        { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
+        { tag: 'meta', attrs: { property: 'og:image:alt', content: 'Distributed Systems Handbook' } },
+        { tag: 'meta', attrs: { name: 'twitter:image', content: 'https://gorkemsari.github.io/distributed-systems/og-image.png' } },
         {
           tag: 'script',
           attrs: { type: 'module' },
