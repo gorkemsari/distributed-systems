@@ -1,6 +1,8 @@
 # Authoring Pipeline
 
-Pages are generated one EN/TR pair per scheduled run, on the `content-gen` branch.
+Pages are generated one EN/TR pair per scheduled run and pushed directly to `main`. Each push
+triggers the GitHub Pages deploy; queue-only commits (failed runs, empty queue) carry
+`[skip ci]` and do not deploy. Commit subjects are the page titles.
 
 | File | Purpose |
 |---|---|
@@ -19,4 +21,5 @@ Operating it:
 - Skip a page: set it to `done` (or move it lower by editing the file).
 - After changing the sidebar: run `python3 authoring/build_queue.py` and commit.
 - Change how runs behave: edit `RUN.md`; the scheduled task only points to it.
-- Review: compare `content-gen` with `main` chapter by chapter and merge via pull request.
+- Review: read new pages on the live site; `git log` on `main` lists them by title. To
+  revert a page, `git revert` its commit (this redeploys) and set its row back to `todo`.

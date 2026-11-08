@@ -1,23 +1,23 @@
 # Scheduled Generation Run
 
 This file is the complete procedure for one unattended generation run. Each run
-produces exactly one EN/TR page pair, validates it, and pushes it to the
-`content-gen` branch. Nobody is watching the run: never ask questions, never wait
+produces exactly one EN/TR page pair, validates it, and pushes it directly to `main`.
+Every push to `main` triggers the GitHub Pages deploy, so a pushed page is live within
+minutes: push only pages that passed every check below. Nobody is watching the run: never ask questions, never wait
 for input, make the most reasonable decision and record it in the log.
 
 ## 1. Set up the workspace
 
 1. Clone `gorkemsari/distributed-systems`. If the repository is not available in the
    session, attach it with push access first.
-2. Check out `content-gen`. If it does not exist on the remote, create it from `main`
-   and push it.
-3. Pull the latest `content-gen` so the run starts from the newest queue.
+2. Check out `main` and pull it so the run starts from the newest queue.
 
 ## 2. Pick the work item
 
 1. Open `authoring/queue.md` and take the first row whose status is `todo`.
 2. If there is no `todo` row, append `- <date> queue empty, nothing to do` to
-   `authoring/log.md`, commit, push, and stop.
+   `authoring/log.md`, commit it with the message `chore(queue): queue empty [skip ci]`,
+   push, and stop. `[skip ci]` prevents a deploy for a commit with no page changes.
 3. Note the row's `Type` (`topic`, `chapter-overview`, `part-overview`), `Slug`, and
    `Title`. Find the row's part and chapter in the sidebar of `astro.config.mjs`.
 
@@ -87,9 +87,10 @@ Label every illustrative number as illustrative.
    restates another, and no adjacent topic is re-explained instead of linked. If it
    fails, the page is `standard` with filler: remove the filler and re-classify. Check the Turkish page for
    natural phrasing, terminology that matches the sidebar, and nothing omitted.
-5. If after three fix rounds `check.py` or the build still fails, do not commit the pages. Set the
-   queue row to `failed` with a one-line reason in `Note`, log it, commit the queue and
-   log only, push, and stop.
+5. If after three fix rounds `check.py` or the build still fails, do not commit the
+   pages. Discard the page changes (`git checkout -- src/`), set the queue row to
+   `failed` with a one-line reason in `Note`, log it, commit the queue and log only with
+   the message `chore(queue): <page title> failed [skip ci]`, push, and stop.
 
 ## 7. Record and push
 
@@ -106,16 +107,23 @@ Label every illustrative number as illustrative.
    correctness arguments, four production implementations with different failure
    behavior). For a page above 6,000 words or one that hit 7,000, add the split proposal
    or state why the topic cannot be split.
-3. Commit only the two page files, `authoring/queue.md`, and `authoring/log.md`, with
-   the message `docs(<slug>): generate EN/TR`.
-4. Push to `content-gen`. If the push is rejected because the branch moved, pull with
-   rebase and push again. Never force-push, never push to `main`.
+3. Commit only the two page files, `authoring/queue.md`, and `authoring/log.md`. The
+   commit subject is the page title exactly as written in the English frontmatter
+   `title`, without quotes (for example `The Scaling Dilemma: Vertical vs. Horizontal
+   Scaling`). The commit body is one line: `<slug> | <type> | <tier> | EN <n> words`.
+4. Before pushing, confirm with `git status` that nothing else is staged or modified.
+5. Push to `main`. If the push is rejected because the branch moved, pull with rebase,
+   re-run `pnpm build`, and push again. Never force-push and never push to any other
+   branch. The push starts the deploy; nothing else is needed.
 
 ## Boundaries
 
 - One page pair per run. Do not continue to the next row.
 - Never edit `astro.config.mjs`, the instruction, the examples, the scripts, or any
   page other than the one being generated.
-- Never merge into `main` and never open pull requests; the owner reviews and merges.
+- Push only to `main`. Never create branches, never open pull requests, never trigger
+  workflows manually.
+- Never push a page that failed `check.py` or `pnpm build`: every push to `main` is a
+  production deploy.
 - Finish with a two-line summary: the slug and result, and anything the owner should
-  look at when reviewing.
+  look at on the live site.
