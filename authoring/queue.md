@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 63 / 335 done.
+Progress: 64 / 335 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -73,7 +73,7 @@ Progress: 63 / 335 done.
 | 061 | done | chapter-overview | - | `data-management/data-partitioning` | Data Partitioning / Sharding | 2026-11-06, 1796 words |
 | 062 | done | topic | deep | `data-management/replication/leader-based-replication` | Leader-Based Replication: Synchronous vs. Asynchronous | 2026-11-07, 5891 words |
 | 063 | done | topic | deep | `data-management/replication/failover-leader-election` | Failover and Leader Election: The Split-Brain Risk | 2026-11-08, 6841 words |
-| 064 | todo | topic | - | `data-management/replication/replication-lag` | Replication Lag Problems: Read-Your-Own-Writes |  |
+| 064 | done | topic | deep | `data-management/replication/replication-lag` | Replication Lag Problems: Read-Your-Own-Writes | 2026-11-09, 6120 words |
 | 065 | todo | topic | - | `data-management/replication/multi-leader-replication` | Multi-Leader Replication: Write Conflicts and Resolution |  |
 | 066 | todo | topic | - | `data-management/replication/leaderless-replication` | Leaderless Replication (Dynamo-style): Quorum R + W > N |  |
 | 067 | todo | topic | - | `data-management/replication/anti-entropy-merkle` | Anti-Entropy: Read Repair and Merkle Trees |  |
