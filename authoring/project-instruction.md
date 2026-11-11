@@ -155,6 +155,7 @@ Code is used only when it is the clearest way to show something (a config shape,
   - Turkish: `/distributed-systems/tr/<slug>/`
 - Use slugs exactly as defined in `astro.config.mjs`. Never invent a slug.
 - Cross-reference when: a prerequisite is covered elsewhere, a pattern solves a problem introduced elsewhere, or two topics are commonly confused. Every link must add navigational value.
+- AI and machine-learning systems (model serving, feature stores, LLM inference, RAG, agents) are covered by the companion **AI Systems Architecture Handbook** (`https://gorkemsari.github.io/ai-systems-architecture/en/`, Turkish under `/tr/`). Do not explain them here; when a page touches them, mention the connection in one or two sentences and link to that handbook's home page in the page's locale.
 
 ---
 
