@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 66 / 335 done.
+Progress: 64 / 346 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -27,321 +27,332 @@ Progress: 66 / 335 done.
 | 015 | done | topic | standard | `foundations/time-and-ordering/happened-before` | The Happened-Before Relation: Foundation of Causality | 2026-11-04, 4315 words |
 | 016 | done | topic | deep | `foundations/time-and-ordering/lamport-timestamps` | Lamport Timestamps: Capturing Causality | 2026-11-04, 5544 words |
 | 017 | done | topic | standard | `foundations/time-and-ordering/vector-clocks` | Vector Clocks: Detecting Concurrency | 2026-11-04, 4449 words |
-| 018 | done | topic | standard | `foundations/time-and-ordering/hybrid-logical-clocks` | Hybrid Logical Clocks (HLC): Combining Physical and Logical Time | 2026-11-04, 4398 words |
-| 019 | done | topic | standard | `foundations/time-and-ordering/truetime-spanner` | Google TrueTime & Spanner: Working with Uncertainty | 2026-11-04, 4416 words |
-| 020 | done | topic | standard | `foundations/time-and-ordering/distributed-id-generation` | Distributed ID Generation: UUIDv7, Snowflake, ULID | 2026-11-04, 4500 words |
-| 021 | done | chapter-overview | - | `foundations/time-and-ordering` | Time and Ordering | 2026-11-04, 1793 words |
-| 022 | done | part-overview | - | `foundations` | Foundations & The Laws of Physics | 2026-11-04, 1687 words |
-| 023 | done | topic | standard | `communication/synchronous-protocols/rest` | REST: Constraints, Resources, and HTTP Contracts | 2026-11-04, 4254 words |
-| 024 | done | topic | deep | `communication/synchronous-protocols/http2-http3-quic` | HTTP/2 and HTTP/3: Multiplexing, HOL Blocking, and QUIC | 2026-11-04, 5411 words |
-| 025 | done | topic | deep | `communication/synchronous-protocols/grpc-protocol-buffers` | gRPC & Protocol Buffers: High-Performance RPC | 2026-11-04, 5929 words |
-| 026 | done | topic | deep | `communication/synchronous-protocols/grpc-streaming` | gRPC Streaming: Unary, Server-Streaming, Bi-directional | 2026-11-04, 5773 words |
-| 027 | done | topic | deep | `communication/synchronous-protocols/graphql` | GraphQL: Query Language and Federation Architecture | 2026-11-04, 5485 words |
-| 028 | done | topic | deep | `communication/synchronous-protocols/websocket-sse` | WebSocket and Server-Sent Events: Real-Time Communication | 2026-11-04, 6207 words |
-| 029 | done | topic | deep | `communication/synchronous-protocols/api-versioning` | API Versioning Strategies | 2026-11-05, 5165 words |
-| 030 | done | chapter-overview | - | `communication/synchronous-protocols` | Synchronous Communication Protocols | 2026-11-05, 1799 words |
-| 031 | done | topic | deep | `communication/async-messaging/message-queue-vs-event-streaming` | Message Queue vs. Event Streaming: Differences and Use Cases | 2026-11-05, 5009 words |
-| 032 | done | topic | deep | `communication/async-messaging/kafka-architecture` | Kafka Architecture: Topic, Partition, Consumer Group, Offset | 2026-11-05, 5951 words |
-| 033 | done | topic | deep | `communication/async-messaging/pulsar-vs-kafka` | Pulsar vs. Kafka: Architectural Comparison | 2026-11-05, 5415 words |
-| 034 | done | topic | deep | `communication/async-messaging/rabbitmq` | RabbitMQ: Exchange Types and Routing | 2026-11-05, 5793 words |
-| 035 | done | topic | deep | `communication/async-messaging/delivery-semantics` | At-Least-Once, At-Most-Once, and Exactly-Once Semantics | 2026-11-05, 5539 words |
-| 036 | done | topic | standard | `communication/async-messaging/asyncapi` | AsyncAPI: Documenting Asynchronous Contracts | 2026-11-05, 4494 words |
-| 037 | done | topic | deep | `communication/async-messaging/schema-evolution-registry` | Schema Evolution and Schema Registry: Avro, Protobuf, and Compatibility Modes | 2026-11-05, 5477 words |
-| 038 | done | topic | deep | `communication/async-messaging/dlq-poison-messages` | Dead Letter Queues and Poison Message Handling | 2026-11-05, 5672 words |
-| 039 | done | chapter-overview | - | `communication/async-messaging` | Asynchronous Messaging Fundamentals | 2026-11-05, 1790 words |
-| 040 | done | topic | deep | `communication/api-gateway/api-gateway-pattern` | API Gateway Pattern: Single Entry Point, Routing, Auth | 2026-11-05, 5464 words |
-| 041 | done | topic | deep | `communication/api-gateway/bff-pattern` | Backend for Frontend (BFF) Pattern | 2026-11-05, 4932 words |
-| 042 | done | topic | deep | `communication/api-gateway/openapi-swagger` | OpenAPI / Swagger: Contract-First Development | 2026-11-05, 5165 words |
-| 043 | done | topic | deep | `communication/api-gateway/contract-testing` | Consumer-Driven Contract Testing (Pact) | 2026-11-05, 4939 words |
-| 044 | done | topic | deep | `communication/api-gateway/idempotency` | Idempotency and Safe HTTP Methods | 2026-11-05, 5984 words |
-| 045 | done | topic | deep | `communication/api-gateway/throttling-rate-limiting` | Throttling and Rate Limiting at the Gateway Level | 2026-11-05, 5415 words |
-| 046 | done | chapter-overview | - | `communication/api-gateway` | API Gateway and Service Contracts | 2026-11-05, 1794 words |
-| 047 | done | topic | deep | `communication/load-balancing/l4-vs-l7` | L4 vs. L7 Load Balancing: Transport vs. Application Layer | 2026-11-05, 5478 words |
-| 048 | done | topic | deep | `communication/load-balancing/algorithms` | Algorithms: Round Robin, Least Connections, Weighted, Consistent Hashing | 2026-11-05, 6215 words |
-| 049 | done | topic | deep | `communication/load-balancing/client-vs-server-side` | Client-Side vs. Server-Side Load Balancing | 2026-11-06, 5751 words |
-| 050 | done | topic | deep | `communication/load-balancing/gslb-anycast` | Global Server Load Balancing (GSLB) and Anycast | 2026-11-06, 5993 words |
-| 051 | done | topic | deep | `communication/load-balancing/health-aware-routing` | Health-Aware Routing and Connection Draining | 2026-11-06, 6307 words |
-| 052 | done | chapter-overview | - | `communication/load-balancing` | Load Balancing | 2026-11-06, 1799 words |
-| 053 | done | part-overview | - | `communication` | Communication Protocols & API Design | 2026-11-06, 1992 words |
-| 054 | done | topic | deep | `data-management/data-partitioning/key-range-partitioning` | Key-Range Partitioning: Advantages and Range Scans | 2026-11-06, 5236 words |
-| 055 | done | topic | deep | `data-management/data-partitioning/hash-partitioning` | Hash Partitioning: Uniform Distribution | 2026-11-06, 5397 words |
-| 056 | done | topic | deep | `data-management/data-partitioning/skew-hot-spots` | Skew and Hot-Spot Problems: Real-World Scenarios | 2026-11-06, 6529 words |
-| 057 | done | topic | deep | `data-management/data-partitioning/consistent-hashing` | Consistent Hashing and Virtual Nodes (vnodes) | 2026-11-06, 5675 words |
-| 058 | done | topic | deep | `data-management/data-partitioning/dynamic-rebalancing` | Dynamic Rebalancing: Zero-Downtime Strategies | 2026-11-06, 6722 words |
-| 059 | done | topic | deep | `data-management/data-partitioning/colocated-joins` | Colocated Joins: Placing Related Data on the Same Shard | 2026-11-06, 5994 words |
-| 060 | done | topic | deep | `data-management/data-partitioning/secondary-indexes` | Secondary Indexes in Partitioned Data: Local vs. Global | 2026-11-06, 6551 words |
-| 061 | done | chapter-overview | - | `data-management/data-partitioning` | Data Partitioning / Sharding | 2026-11-06, 1796 words |
-| 062 | done | topic | deep | `data-management/replication/leader-based-replication` | Leader-Based Replication: Synchronous vs. Asynchronous | 2026-11-07, 5891 words |
-| 063 | done | topic | deep | `data-management/replication/failover-leader-election` | Failover and Leader Election: The Split-Brain Risk | 2026-11-08, 6841 words |
-| 064 | done | topic | deep | `data-management/replication/replication-lag` | Replication Lag Problems: Read-Your-Own-Writes | 2026-11-09, 6120 words |
-| 065 | done | topic | deep | `data-management/replication/multi-leader-replication` | Multi-Leader Replication: Write Conflicts and Resolution | 2026-11-10, 6753 words |
-| 066 | done | topic | deep | `data-management/replication/leaderless-replication` | Leaderless Replication (Dynamo-style): Quorum R + W > N | 2026-11-11, 5488 words |
-| 067 | todo | topic | - | `data-management/replication/anti-entropy-merkle` | Anti-Entropy: Read Repair and Merkle Trees |  |
-| 068 | todo | chapter-overview | - | `data-management/replication` | Replication Strategies |  |
-| 069 | todo | topic | - | `data-management/consistency-models/linearizability` | Linearizability: The Strongest Guarantee, the Highest Cost |  |
-| 070 | todo | topic | - | `data-management/consistency-models/serializability` | Serializability: Transaction Isolation |  |
-| 071 | todo | topic | - | `data-management/consistency-models/weak-isolation-mvcc` | Weak Isolation and MVCC: Read Committed, Snapshot Isolation, Write Skew |  |
-| 072 | todo | topic | - | `data-management/consistency-models/cap-theorem` | CAP Theorem: CP vs. AP Systems |  |
-| 073 | todo | topic | - | `data-management/consistency-models/pacelc-theorem` | PACELC Theorem: The Latency-Consistency Trade-off |  |
-| 074 | todo | topic | - | `data-management/consistency-models/causal-consistency-session-guarantees` | Causal Consistency and Session Guarantees: The Middle of the Spectrum |  |
-| 075 | todo | topic | - | `data-management/consistency-models/eventual-consistency` | Eventual Consistency: Last Write Wins (LWW) and Its Weaknesses |  |
-| 076 | todo | topic | - | `data-management/consistency-models/crdts` | CRDTs: Conflict-free Replicated Data Types |  |
-| 077 | todo | chapter-overview | - | `data-management/consistency-models` | Consistency Models |  |
-| 078 | todo | topic | - | `data-management/storage-engines/lsm-tree-vs-b-tree` | LSM-Tree vs. B-Tree: Write and Read Performance Trade-offs |  |
-| 079 | todo | topic | - | `data-management/storage-engines/sstables-memtable-compaction` | SSTables, Memtable, and Compaction Strategies |  |
-| 080 | todo | topic | - | `data-management/storage-engines/bloom-filters` | Bloom Filters: Reducing Disk Reads |  |
-| 081 | todo | topic | - | `data-management/storage-engines/write-ahead-log` | Write-Ahead Log (WAL): The Foundation of Durability |  |
-| 082 | todo | topic | - | `data-management/storage-engines/columnar-storage` | Columnar Storage: Advantages in Analytical Queries |  |
-| 083 | todo | chapter-overview | - | `data-management/storage-engines` | Storage Engines and Data Structures |  |
-| 084 | todo | topic | - | `data-management/distributed-caching/cache-strategies` | Cache Strategies: Cache-Aside, Read-Through, Write-Through, Write-Behind |  |
-| 085 | todo | topic | - | `data-management/distributed-caching/cache-invalidation` | Cache Invalidation: TTL, Event-Based, and Versioned Keys |  |
-| 086 | todo | topic | - | `data-management/distributed-caching/redis-cluster` | Redis Cluster Architecture: Sharding, Replication, Sentinel |  |
-| 087 | todo | topic | - | `data-management/distributed-caching/cache-stampede` | Cache Stampede and Thundering Herd: Prevention Techniques |  |
-| 088 | todo | topic | - | `data-management/distributed-caching/distributed-vs-local` | Distributed vs. Local Cache: Consistency Trade-offs |  |
-| 089 | todo | topic | - | `data-management/distributed-caching/memcached-vs-redis` | Memcached vs. Redis: Architectural Comparison |  |
-| 090 | todo | chapter-overview | - | `data-management/distributed-caching` | Distributed Caching |  |
-| 091 | todo | part-overview | - | `data-management` | Data Management & Consistency |  |
-| 092 | todo | topic | - | `data-processing/batch-processing/mapreduce` | The MapReduce Paradigm: Functional Roots, Map, Shuffle, Reduce |  |
-| 093 | todo | topic | - | `data-processing/batch-processing/distributed-sort` | Distributed Sort: The Challenge of the Shuffle Phase |  |
-| 094 | todo | topic | - | `data-processing/batch-processing/hadoop-to-spark` | From Hadoop to Apache Spark: Disk vs. In-Memory Processing |  |
-| 095 | todo | topic | - | `data-processing/batch-processing/rdd-dataframe-dataset` | RDD, DataFrame, and Dataset APIs |  |
-| 096 | todo | topic | - | `data-processing/batch-processing/checkpointing-fault-tolerance` | Checkpointing and Fault Tolerance |  |
-| 097 | todo | topic | - | `data-processing/batch-processing/straggler-speculative-execution` | Straggler Tasks: Speculative Execution |  |
-| 098 | todo | chapter-overview | - | `data-processing/batch-processing` | Batch Processing |  |
-| 099 | todo | topic | - | `data-processing/stream-processing/bounded-vs-unbounded` | Bounded vs. Unbounded Data |  |
-| 100 | todo | topic | - | `data-processing/stream-processing/event-time-vs-processing-time` | Event Time vs. Processing Time: The Critical Distinction |  |
-| 101 | todo | topic | - | `data-processing/stream-processing/windowing` | Windowing: Tumbling, Sliding, and Session Windows |  |
-| 102 | todo | topic | - | `data-processing/stream-processing/watermarks` | Watermarks: The Art of Managing Late Data |  |
-| 103 | todo | topic | - | `data-processing/stream-processing/triggers-accumulation` | Triggers and Accumulation Modes |  |
-| 104 | todo | topic | - | `data-processing/stream-processing/apache-flink` | Apache Flink: Depth of Stateful Stream Processing |  |
-| 105 | todo | chapter-overview | - | `data-processing/stream-processing` | Stream Processing |  |
-| 106 | todo | topic | - | `data-processing/hybrid-architectures/commit-log-abstraction` | The Commit Log Abstraction: The Core Idea Behind Kafka/Pulsar |  |
-| 107 | todo | topic | - | `data-processing/hybrid-architectures/lambda-architecture` | Lambda Architecture: The Complexity of Batch + Speed Layers |  |
-| 108 | todo | topic | - | `data-processing/hybrid-architectures/kappa-architecture` | Kappa Architecture: Everything Is a Stream |  |
-| 109 | todo | topic | - | `data-processing/hybrid-architectures/log-compaction` | Log Compaction: Kafka Compacted Topics and Tombstones |  |
-| 110 | todo | topic | - | `data-processing/hybrid-architectures/change-data-capture` | Change Data Capture (CDC): Real-Time Synchronization |  |
-| 111 | todo | topic | - | `data-processing/hybrid-architectures/debezium` | Debezium: Practical Database CDC Implementation |  |
-| 112 | todo | chapter-overview | - | `data-processing/hybrid-architectures` | Hybrid Architectures and the Log Abstraction |  |
-| 113 | todo | part-overview | - | `data-processing` | Data Processing Architectures |  |
-| 114 | todo | topic | - | `coordination/distributed-transactions/acid-vs-base` | ACID vs. BASE: Guarantees and Trade-offs |  |
-| 115 | todo | topic | - | `coordination/distributed-transactions/two-phase-commit` | Two-Phase Commit (2PC): Blocking Nature and Risks |  |
-| 116 | todo | topic | - | `coordination/distributed-transactions/three-phase-commit` | Three-Phase Commit (3PC): Reducing Blockage |  |
-| 117 | todo | topic | - | `coordination/distributed-transactions/saga-pattern` | The SAGA Pattern: Choreography vs. Orchestration |  |
-| 118 | todo | topic | - | `coordination/distributed-transactions/compensating-transactions` | Compensating Transactions |  |
-| 119 | todo | topic | - | `coordination/distributed-transactions/outbox-pattern` | The Outbox Pattern: Atomic DB Write + Message Publishing |  |
-| 120 | todo | chapter-overview | - | `coordination/distributed-transactions` | Distributed Transactions |  |
-| 121 | todo | topic | - | `coordination/consensus-algorithms/split-brain-fencing` | The Split-Brain Problem and Fencing Tokens |  |
-| 122 | todo | topic | - | `coordination/consensus-algorithms/flp-impossibility` | The FLP Impossibility Result: Why Consensus Is Hard |  |
-| 123 | todo | topic | - | `coordination/consensus-algorithms/paxos` | Paxos: Core Logic, Prepare and Accept Phases |  |
-| 124 | todo | topic | - | `coordination/consensus-algorithms/raft` | Raft: Leader Election, Log Replication, Membership Changes |  |
-| 125 | todo | topic | - | `coordination/consensus-algorithms/zab-zookeeper` | Zab (ZooKeeper Atomic Broadcast): Epochs and Zxid |  |
-| 126 | todo | topic | - | `coordination/consensus-algorithms/etcd` | etcd: Distributed K-V Storage on top of Raft |  |
-| 127 | todo | topic | - | `coordination/consensus-algorithms/byzantine-fault-tolerance` | Byzantine Fault Tolerance: PBFT, Proof of Work / Proof of Stake |  |
-| 128 | todo | chapter-overview | - | `coordination/consensus-algorithms` | Consensus Algorithms |  |
-| 129 | todo | topic | - | `coordination/distributed-locking/lock-fundamentals` | Lock Fundamentals: Mutual Exclusion in Distributed Systems |  |
-| 130 | todo | topic | - | `coordination/distributed-locking/lease-based-locking` | Lease-Based Locking: TTL, Renewal, and Expiry Semantics |  |
-| 131 | todo | topic | - | `coordination/distributed-locking/fencing-tokens` | Fencing Tokens: Preventing Stale Lock Holders |  |
-| 132 | todo | topic | - | `coordination/distributed-locking/redlock` | Redlock Algorithm: The Redis Distributed Lock Debate |  |
-| 133 | todo | topic | - | `coordination/distributed-locking/zookeeper-etcd-recipes` | ZooKeeper and etcd Recipes: Production Lock Implementations |  |
-| 134 | todo | chapter-overview | - | `coordination/distributed-locking` | Distributed Locking |  |
-| 135 | todo | part-overview | - | `coordination` | Coordination & Consensus |  |
-| 136 | todo | topic | - | `microservice-patterns/service-decomposition/domain-driven-design` | Domain-Driven Design (DDD): Bounded Context and Ubiquitous Language |  |
-| 137 | todo | topic | - | `microservice-patterns/service-decomposition/conways-law` | Drawing Service Boundaries: Conway's Law |  |
-| 138 | todo | topic | - | `microservice-patterns/service-decomposition/strangler-fig` | The Strangler Fig Pattern: Safe Migration from Monolith |  |
-| 139 | todo | topic | - | `microservice-patterns/service-decomposition/decompose-by-capability` | Decompose by Business Capability vs. Subdomain |  |
-| 140 | todo | topic | - | `microservice-patterns/service-decomposition/distributed-monolith` | Anti-Pattern: The Distributed Monolith - How to Avoid It |  |
-| 141 | todo | topic | - | `microservice-patterns/service-decomposition/service-granularity` | Service Granularity: How Small Is Too Small? |  |
-| 142 | todo | topic | - | `microservice-patterns/service-decomposition/modular-monolith` | The Modular Monolith: When Not to Distribute |  |
-| 143 | todo | chapter-overview | - | `microservice-patterns/service-decomposition` | Service Decomposition Strategies |  |
-| 144 | todo | topic | - | `microservice-patterns/structural-patterns/sidecar-pattern` | The Sidecar Pattern |  |
-| 145 | todo | topic | - | `microservice-patterns/structural-patterns/ambassador-pattern` | The Ambassador Pattern: Helper Container as Proxy |  |
-| 146 | todo | topic | - | `microservice-patterns/structural-patterns/adapter-pattern` | The Adapter Pattern: Standardized Interfaces |  |
-| 147 | todo | topic | - | `microservice-patterns/structural-patterns/anti-corruption-layer` | Anti-Corruption Layer (ACL): Integration with Legacy Systems |  |
-| 148 | todo | topic | - | `microservice-patterns/structural-patterns/shared-library-vs-sidecar` | Shared Library vs. Sidecar: Dependency Management Trade-offs |  |
-| 149 | todo | chapter-overview | - | `microservice-patterns/structural-patterns` | Structural Patterns |  |
-| 150 | todo | topic | - | `microservice-patterns/service-discovery/client-side-discovery` | Client-Side Discovery: Eureka, Ribbon, and Spring Cloud LoadBalancer |  |
-| 151 | todo | topic | - | `microservice-patterns/service-discovery/server-side-discovery` | Server-Side Discovery: Load Balancer + Registry |  |
-| 152 | todo | topic | - | `microservice-patterns/service-discovery/self-registration` | Self-Registration vs. Third-Party Registration |  |
-| 153 | todo | topic | - | `microservice-patterns/service-discovery/consul` | Consul: Service Discovery + Health Checking + KV Store |  |
-| 154 | todo | topic | - | `microservice-patterns/service-discovery/dns-based-discovery` | DNS-Based Discovery: Kubernetes DNS |  |
-| 155 | todo | topic | - | `microservice-patterns/service-discovery/health-check-endpoint` | Health Check Endpoint Pattern |  |
-| 156 | todo | chapter-overview | - | `microservice-patterns/service-discovery` | Service Discovery |  |
-| 157 | todo | topic | - | `microservice-patterns/data-management-patterns/database-per-service` | Database per Service: Independence and Isolation |  |
-| 158 | todo | topic | - | `microservice-patterns/data-management-patterns/shared-database-antipattern` | Shared Database Anti-Pattern: Why It Is Dangerous |  |
-| 159 | todo | topic | - | `microservice-patterns/data-management-patterns/api-composition` | API Composition: The Distributed Join Problem |  |
-| 160 | todo | topic | - | `microservice-patterns/data-management-patterns/polyglot-persistence` | Polyglot Persistence: The Right Database for the Right Job |  |
-| 161 | todo | topic | - | `microservice-patterns/data-management-patterns/materialized-view` | Cross-Service Query: The Materialized View Pattern |  |
-| 162 | todo | chapter-overview | - | `microservice-patterns/data-management-patterns` | Data Management Patterns |  |
-| 163 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/event-sourcing` | Event Sourcing: The Event Chain Instead of State |  |
-| 164 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/event-store-design` | Event Store Design: The Append-Only Log |  |
-| 165 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/cqrs` | CQRS: Separating Read and Write Models |  |
-| 166 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/projections` | Projections: Building Read Models from Events |  |
-| 167 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/event-versioning` | Event Versioning and Schema Evolution |  |
-| 168 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/snapshots` | Snapshots: Optimizing Long Event Chains |  |
-| 169 | todo | chapter-overview | - | `microservice-patterns/event-sourcing-cqrs` | Event Sourcing and CQRS |  |
-| 170 | todo | part-overview | - | `microservice-patterns` | Microservice Architecture Patterns |  |
-| 171 | todo | topic | - | `resilience/flow-control/queueing-theory-littles-law` | Queueing Theory Foundations: Little's Law and the Utilization Curve |  |
-| 172 | todo | topic | - | `resilience/flow-control/backpressure` | Backpressure: Pushing Load Back to the Source |  |
-| 173 | todo | topic | - | `resilience/flow-control/load-shedding` | Load Shedding: Which Requests to Drop and How |  |
-| 174 | todo | topic | - | `resilience/flow-control/priority-queues` | Priority Queues: Protecting Critical Requests |  |
-| 175 | todo | topic | - | `resilience/flow-control/rate-limiting` | Rate Limiting: Token Bucket, Leaky Bucket, Fixed and Sliding Window |  |
-| 176 | todo | topic | - | `resilience/flow-control/adaptive-rate-limiting` | Adaptive Rate Limiting: Dynamic Limits |  |
-| 177 | todo | topic | - | `resilience/flow-control/retry-storms-metastable-failures` | Retry Storms and Metastable Failures: Work Amplification and Retry Budgets |  |
-| 178 | todo | chapter-overview | - | `resilience/flow-control` | Flow Control and Overload Management |  |
-| 179 | todo | topic | - | `resilience/protection-patterns/circuit-breaker` | Circuit Breaker: The Closed to Open to Half-Open Cycle |  |
-| 180 | todo | topic | - | `resilience/protection-patterns/bulkhead-pattern` | Bulkhead Pattern: Thread Pool and Semaphore Isolation |  |
-| 181 | todo | topic | - | `resilience/protection-patterns/retry-exponential-backoff` | Retry with Exponential Backoff and Jitter |  |
-| 182 | todo | topic | - | `resilience/protection-patterns/timeouts` | Timeouts: Why They Are So Hard to Configure |  |
-| 183 | todo | topic | - | `resilience/protection-patterns/fallback-strategies` | Fallback Strategies: Degraded Service, Cached Response |  |
-| 184 | todo | topic | - | `resilience/protection-patterns/hystrix-resilience4j` | From Hystrix to Resilience4j: Library Comparison |  |
-| 185 | todo | chapter-overview | - | `resilience/protection-patterns` | Protection Patterns |  |
-| 186 | todo | topic | - | `resilience/failure-detection/heartbeats-timeouts` | Heartbeats and the Science of Timeout Configuration |  |
-| 187 | todo | topic | - | `resilience/failure-detection/gossip-protocols` | Gossip Protocols: Information Dissemination via Epidemic Algorithms |  |
-| 188 | todo | topic | - | `resilience/failure-detection/phi-accrual-detector` | Phi Accrual Failure Detector: Viewing Failure as a Probability |  |
-| 189 | todo | topic | - | `resilience/failure-detection/swim-protocol` | SWIM Protocol: Scalable Membership |  |
-| 190 | todo | topic | - | `resilience/failure-detection/liveness-vs-readiness` | Liveness vs. Readiness: The Difference Between Kubernetes Probes |  |
-| 191 | todo | chapter-overview | - | `resilience/failure-detection` | Failure Detection and Membership Protocols |  |
-| 192 | todo | topic | - | `resilience/chaos-engineering/chaos-monkey` | Chaos Monkey: Netflix's Pioneering Approach |  |
-| 193 | todo | topic | - | `resilience/chaos-engineering/chaos-principles` | Principles of Chaos Engineering: Hypothesis, Blast Radius, Observation |  |
-| 194 | todo | topic | - | `resilience/chaos-engineering/fault-injection` | Fault Injection: Simulating Latency, Exceptions, and Partitions |  |
-| 195 | todo | topic | - | `resilience/chaos-engineering/gameday` | GameDay: Disaster Scenario Drills |  |
-| 196 | todo | topic | - | `resilience/chaos-engineering/chaos-automation` | Automating Chaos: Litmus, Chaos Toolkit |  |
-| 197 | todo | chapter-overview | - | `resilience/chaos-engineering` | Chaos Engineering |  |
-| 198 | todo | part-overview | - | `resilience` | Resilience & Production Engineering |  |
-| 199 | todo | topic | - | `observability/logs-metrics-traces/structured-logging` | Structured Logging: JSON Logs and Correlation IDs |  |
-| 200 | todo | topic | - | `observability/logs-metrics-traces/log-aggregation-elk` | Log Aggregation: ELK Stack (Elasticsearch, Logstash, Kibana) |  |
-| 201 | todo | topic | - | `observability/logs-metrics-traces/metrics` | Metrics: Counter, Gauge, Histogram, Summary |  |
-| 202 | todo | topic | - | `observability/logs-metrics-traces/red-vs-use-method` | The RED Method (Rate, Errors, Duration) vs. the USE Method |  |
-| 203 | todo | topic | - | `observability/logs-metrics-traces/distributed-tracing` | Distributed Tracing: Span, Trace, and Baggage Propagation |  |
-| 204 | todo | topic | - | `observability/logs-metrics-traces/signal-correlation` | Correlation: Joining Three Signals from a Single Failure Event |  |
-| 205 | todo | chapter-overview | - | `observability/logs-metrics-traces` | The Three Pillars: Logs, Metrics, Traces |  |
-| 206 | todo | topic | - | `observability/observability-tools/opentelemetry` | OpenTelemetry: The Vendor-Neutral Instrumentation Standard |  |
-| 207 | todo | topic | - | `observability/observability-tools/prometheus` | Prometheus: Pull-Based Metric Collection and PromQL |  |
-| 208 | todo | topic | - | `observability/observability-tools/grafana` | Grafana: Dashboard Design and Alerting |  |
-| 209 | todo | topic | - | `observability/observability-tools/tracing-backends` | Jaeger / Zipkin / Tempo: Distributed Tracing Backends |  |
-| 210 | todo | topic | - | `observability/observability-tools/loki` | Loki: Log Aggregation with the Prometheus Philosophy |  |
-| 211 | todo | topic | - | `observability/observability-tools/ebpf-observability` | eBPF: Kernel-Level Observability (Cilium, Pixie) |  |
-| 212 | todo | chapter-overview | - | `observability/observability-tools` | Tools and Standards |  |
-| 213 | todo | topic | - | `observability/slo-sla-error-budgets/sli` | SLI (Service Level Indicator): What Should Be Measured? |  |
-| 214 | todo | topic | - | `observability/slo-sla-error-budgets/slo` | SLO (Service Level Objective): The Art of Setting Targets |  |
-| 215 | todo | topic | - | `observability/slo-sla-error-budgets/sla` | SLA (Service Level Agreement): Legal Obligations |  |
-| 216 | todo | topic | - | `observability/slo-sla-error-budgets/error-budget` | Error Budget: Balancing Innovation and Reliability |  |
-| 217 | todo | topic | - | `observability/slo-sla-error-budgets/toil` | Toil: Measuring and Reducing Operational Burden |  |
-| 218 | todo | topic | - | `observability/slo-sla-error-budgets/google-sre` | Practical Lessons from the Google SRE Book |  |
-| 219 | todo | chapter-overview | - | `observability/slo-sla-error-budgets` | SLOs, SLAs, and Error Budgets |  |
-| 220 | todo | part-overview | - | `observability` | Observability |  |
-| 221 | todo | topic | - | `kubernetes/fundamentals/pod-deployment-statefulset` | Pod, Deployment, StatefulSet, DaemonSet: When to Use Which |  |
-| 222 | todo | topic | - | `kubernetes/fundamentals/kubernetes-scheduler` | The Kubernetes Scheduler: The Mechanics of Placement Decisions |  |
-| 223 | todo | topic | - | `kubernetes/fundamentals/etcd-cluster-state` | etcd: The Heart of Cluster State |  |
-| 224 | todo | topic | - | `kubernetes/fundamentals/hpa-keda` | Horizontal Pod Autoscaler (HPA) and KEDA: Event-Driven Scaling |  |
-| 225 | todo | topic | - | `kubernetes/fundamentals/node-affinity-taints` | Node Affinity, Taints and Tolerations: Fine-Grained Placement |  |
-| 226 | todo | topic | - | `kubernetes/fundamentals/operator-pattern` | The Operator Pattern: Extending Kubernetes |  |
-| 227 | todo | chapter-overview | - | `kubernetes/fundamentals` | Kubernetes: The Operating System for Distributed Systems |  |
-| 228 | todo | topic | - | `kubernetes/runtime-and-operations/container-internals` | Container Internals: Namespaces, cgroups v2, and the OCI Runtime |  |
-| 229 | todo | topic | - | `kubernetes/runtime-and-operations/resource-management-qos` | Resource Management: Requests, Limits, QoS, OOMKill, and CPU Throttling |  |
-| 230 | todo | topic | - | `kubernetes/runtime-and-operations/kubernetes-networking` | Kubernetes Networking: Services, kube-proxy, and CNI |  |
-| 231 | todo | topic | - | `kubernetes/runtime-and-operations/persistent-storage-csi` | Persistent Storage: PV, PVC, and the CSI Interface |  |
-| 232 | todo | topic | - | `kubernetes/runtime-and-operations/graceful-termination-pdb` | Graceful Termination and PodDisruptionBudgets |  |
-| 233 | todo | topic | - | `kubernetes/runtime-and-operations/cluster-autoscaling` | Cluster Autoscaling: Cluster Autoscaler, Karpenter, and VPA |  |
-| 234 | todo | chapter-overview | - | `kubernetes/runtime-and-operations` | Container Internals & Kubernetes in Production |  |
-| 235 | todo | part-overview | - | `kubernetes` | Container Orchestration & Kubernetes |  |
-| 236 | todo | topic | - | `service-mesh/service-mesh-architecture/why-service-mesh` | Why Service Mesh Exists: L4 vs. L7 Problems |  |
-| 237 | todo | topic | - | `service-mesh/service-mesh-architecture/envoy-proxy` | Envoy Proxy: The Backbone of the Data Plane |  |
-| 238 | todo | topic | - | `service-mesh/service-mesh-architecture/istio` | Istio: istiod and the Consolidated Control Plane |  |
-| 239 | todo | topic | - | `service-mesh/service-mesh-architecture/linkerd` | Linkerd: A Lightweight Alternative with a Rust-Based Proxy |  |
-| 240 | todo | topic | - | `service-mesh/service-mesh-architecture/traffic-management` | Traffic Management: Load Balancing, Retry, and Fault Injection |  |
-| 241 | todo | topic | - | `service-mesh/service-mesh-architecture/mesh-observability` | Observability at the Mesh Level: Automatic Telemetry |  |
-| 242 | todo | topic | - | `service-mesh/service-mesh-architecture/sidecarless-ambient-mesh` | Sidecarless Mesh: Istio Ambient Mode and Cilium Service Mesh |  |
-| 243 | todo | chapter-overview | - | `service-mesh/service-mesh-architecture` | Service Mesh Architecture |  |
-| 244 | todo | topic | - | `service-mesh/network-policies-mtls/kubernetes-network-policy` | Kubernetes Network Policy: Pod-Level Firewall |  |
-| 245 | todo | topic | - | `service-mesh/network-policies-mtls/mtls` | mTLS: Mutual Authentication and Encryption |  |
-| 246 | todo | topic | - | `service-mesh/network-policies-mtls/certificate-lifecycle` | Certificate Lifecycle: Cert-Manager, SPIFFE / SPIRE |  |
-| 247 | todo | topic | - | `service-mesh/network-policies-mtls/ebpf-networking` | eBPF Networking: Kernel-Level CNI with Cilium |  |
-| 248 | todo | topic | - | `service-mesh/network-policies-mtls/ingress-vs-gateway-api` | Ingress vs. Gateway API: Next-Generation Traffic Management |  |
-| 249 | todo | chapter-overview | - | `service-mesh/network-policies-mtls` | Network Policies and mTLS |  |
-| 250 | todo | part-overview | - | `service-mesh` | Service Mesh & Network Security |  |
-| 251 | todo | topic | - | `security/authentication-authorization/oauth2-oidc` | OAuth 2.0 & OIDC: Identity Management in a Distributed Environment |  |
-| 252 | todo | topic | - | `security/authentication-authorization/jwt` | JWT: Signing, Verification, and Refresh Strategies |  |
-| 253 | todo | topic | - | `security/authentication-authorization/api-key-vs-service-account` | API Key vs. Service Account: Service Identity |  |
-| 254 | todo | topic | - | `security/authentication-authorization/rbac-vs-abac` | RBAC vs. ABAC: Authorization Models |  |
-| 255 | todo | topic | - | `security/authentication-authorization/workload-identity` | Workload Identity: Service Identity with SPIFFE / SPIRE |  |
-| 256 | todo | chapter-overview | - | `security/authentication-authorization` | Authentication and Authorization |  |
-| 257 | todo | topic | - | `security/zero-trust/never-trust-always-verify` | Engineering the Never Trust, Always Verify Principle |  |
-| 258 | todo | topic | - | `security/zero-trust/micro-segmentation` | Micro-Segmentation: The Least-Privilege Network Model |  |
-| 259 | todo | topic | - | `security/zero-trust/identity-aware-proxy` | Identity-Aware Proxy (IAP) |  |
-| 260 | todo | topic | - | `security/zero-trust/beyondcorp` | The BeyondCorp Model: Google's Approach |  |
-| 261 | todo | topic | - | `security/zero-trust/continuous-verification` | Continuous Verification: Dynamic Security Decisions |  |
-| 262 | todo | topic | - | `security/zero-trust/policy-as-code` | Policy as Code: OPA, Gatekeeper, and Kyverno |  |
-| 263 | todo | chapter-overview | - | `security/zero-trust` | Zero Trust Architecture |  |
-| 264 | todo | topic | - | `security/secrets-management/hashicorp-vault` | HashiCorp Vault: Dynamic Secrets, Leases, and Rotation |  |
-| 265 | todo | topic | - | `security/secrets-management/kubernetes-secrets` | Kubernetes Secrets: Why They Are Not Enough |  |
-| 266 | todo | topic | - | `security/secrets-management/envelope-encryption` | Envelope Encryption: The Key Encryption Key (KEK) Model |  |
-| 267 | todo | topic | - | `security/secrets-management/encryption-in-transit-at-rest` | Encryption in Transit vs. At Rest: Both Are Mandatory |  |
-| 268 | todo | topic | - | `security/secrets-management/supply-chain-security` | Supply Chain Security: The SLSA Framework and Sigstore |  |
-| 269 | todo | chapter-overview | - | `security/secrets-management` | Secrets Management and Encryption |  |
-| 270 | todo | part-overview | - | `security` | Security Architecture |  |
-| 271 | todo | topic | - | `deployment/deployment-patterns/blue-green-deployment` | Blue/Green Deployment: Instant Cutover and Rollback |  |
-| 272 | todo | topic | - | `deployment/deployment-patterns/canary-release` | Canary Release: Progressive Traffic Shifting |  |
-| 273 | todo | topic | - | `deployment/deployment-patterns/rolling-update` | Rolling Update: Staged Update Strategy |  |
-| 274 | todo | topic | - | `deployment/deployment-patterns/feature-flags` | Feature Flags: Decoupling Deployment from Release |  |
-| 275 | todo | topic | - | `deployment/deployment-patterns/ab-testing` | A/B Testing: Experimentation via Traffic Splitting |  |
-| 276 | todo | topic | - | `deployment/deployment-patterns/shadow-deployment` | Shadow Deployment: Cloning Production Traffic |  |
-| 277 | todo | topic | - | `deployment/deployment-patterns/zero-downtime-db-migrations` | Zero-Downtime Database Migrations: The Expand/Contract Pattern |  |
-| 278 | todo | chapter-overview | - | `deployment/deployment-patterns` | Deployment Patterns |  |
-| 279 | todo | topic | - | `deployment/gitops-cicd/gitops-principles` | GitOps Principles: Git as the Single Source of Truth |  |
-| 280 | todo | topic | - | `deployment/gitops-cicd/argocd-flux` | ArgoCD and Flux: GitOps Operators for Kubernetes |  |
-| 281 | todo | topic | - | `deployment/gitops-cicd/progressive-delivery` | Progressive Delivery: Automated Canary Releases with Flagger |  |
-| 282 | todo | topic | - | `deployment/gitops-cicd/pipeline-as-code` | Pipeline as Code: Reproducible CI/CD |  |
-| 283 | todo | topic | - | `deployment/gitops-cicd/artifact-management` | Artifact Management: OCI Registry and Helm Charts |  |
-| 284 | todo | topic | - | `deployment/gitops-cicd/environment-promotion` | Environment Promotion: Dev to Staging to Production |  |
-| 285 | todo | chapter-overview | - | `deployment/gitops-cicd` | GitOps and CI/CD |  |
-| 286 | todo | topic | - | `deployment/platform-engineering/internal-developer-platform` | Internal Developer Platform (IDP): What It Is and Why It Is Needed |  |
-| 287 | todo | topic | - | `deployment/platform-engineering/backstage` | Backstage: Service Catalog and Developer Portal |  |
-| 288 | todo | topic | - | `deployment/platform-engineering/golden-paths` | Golden Paths: Speed and Security Through Standardized Routes |  |
-| 289 | todo | topic | - | `deployment/platform-engineering/infrastructure-as-code` | Infrastructure as Code: Terraform and Pulumi |  |
-| 290 | todo | topic | - | `deployment/platform-engineering/cost-optimization` | Cost Optimization: Monitoring and Optimizing Resource Utilization |  |
-| 291 | todo | chapter-overview | - | `deployment/platform-engineering` | Platform Engineering |  |
-| 292 | todo | topic | - | `deployment/distributed-testing/integration-testing` | Integration Testing: Service Boundaries and Contract Verification |  |
-| 293 | todo | topic | - | `deployment/distributed-testing/end-to-end-testing` | End-to-End Testing: Balancing Coverage and Flakiness |  |
-| 294 | todo | topic | - | `deployment/distributed-testing/testing-event-driven` | Testing Event-Driven Systems: Async Flows and Eventual Consistency |  |
-| 295 | todo | topic | - | `deployment/distributed-testing/staging-fidelity` | Staging Fidelity: How Realistic Is Your Test Environment? |  |
-| 296 | todo | topic | - | `deployment/distributed-testing/test-data-management` | Test Data Management: Synthetic Data, Anonymization, and Seeding |  |
-| 297 | todo | topic | - | `deployment/distributed-testing/load-performance-testing` | Load and Performance Testing: k6, Locust, and Capacity Validation |  |
-| 298 | todo | topic | - | `deployment/distributed-testing/jepsen-deterministic-simulation` | Correctness Testing: Jepsen and Deterministic Simulation |  |
-| 299 | todo | chapter-overview | - | `deployment/distributed-testing` | Testing in Distributed Systems |  |
-| 300 | todo | part-overview | - | `deployment` | Deployment Strategies & Operations |  |
-| 301 | todo | topic | - | `case-studies/apache-kafka/disk-persistence-zero-copy` | Disk-Based Persistence and Zero-Copy Optimization |  |
-| 302 | todo | topic | - | `case-studies/apache-kafka/kraft-mode` | KRaft Mode: Eliminating the ZooKeeper Dependency |  |
-| 303 | todo | topic | - | `case-studies/apache-kafka/consumer-group-rebalancing` | Consumer Group Rebalancing: Failure Scenarios |  |
-| 304 | todo | topic | - | `case-studies/apache-kafka/exactly-once-semantics` | Exactly-Once Semantics: Idempotent Producer + Transactional API |  |
-| 305 | todo | topic | - | `case-studies/apache-kafka/kafka-streams-ksqldb` | Kafka Streams vs. ksqlDB: When to Use Which |  |
-| 306 | todo | chapter-overview | - | `case-studies/apache-kafka` | Messaging Platform: Apache Kafka |  |
-| 307 | todo | topic | - | `case-studies/dynamodb-cassandra/sla-driven-design` | SLA-Driven Design: The P99 Latency Guarantee |  |
-| 308 | todo | topic | - | `case-studies/dynamodb-cassandra/dynamodb-data-model` | DynamoDB's Data Model: Partition Key + Sort Key |  |
-| 309 | todo | topic | - | `case-studies/dynamodb-cassandra/cassandra-hashing-ring` | Cassandra's Consistent Hashing Ring |  |
-| 310 | todo | topic | - | `case-studies/dynamodb-cassandra/vector-clocks-conflict-resolution` | Vector Clocks in the Dynamo Paper: Conflict Resolution and Its Legacy |  |
-| 311 | todo | topic | - | `case-studies/dynamodb-cassandra/hot-partition-problem` | The Hot Partition Problem: A Real-World Case Study |  |
-| 312 | todo | chapter-overview | - | `case-studies/dynamodb-cassandra` | Distributed Key-Value Store: DynamoDB / Cassandra |  |
-| 313 | todo | topic | - | `case-studies/microservices-at-scale/netflix-chaos-engineering` | Netflix: The Birth of Chaos Engineering |  |
-| 314 | todo | topic | - | `case-studies/microservices-at-scale/uber-doma` | Uber's Domain-Oriented Microservice Architecture (DOMA) |  |
-| 315 | todo | topic | - | `case-studies/microservices-at-scale/airbnb-migration` | Airbnb's Journey from Monolith to Microservices |  |
-| 316 | todo | topic | - | `case-studies/microservices-at-scale/postmortem-culture` | Postmortem Culture: The Blameless Retrospective |  |
-| 317 | todo | topic | - | `case-studies/microservices-at-scale/technical-debt-management` | Technical Debt Management: Sustainability at Scale |  |
-| 318 | todo | chapter-overview | - | `case-studies/microservices-at-scale` | Microservices at Scale: Netflix, Uber, Airbnb |  |
-| 319 | todo | topic | - | `case-studies/realtime-analytics/stream-join-challenges` | Stream Join Challenges: Temporal Join Strategies |  |
-| 320 | todo | topic | - | `case-studies/realtime-analytics/apache-pinot-druid` | Apache Pinot / Druid: OLAP at Low Latency |  |
-| 321 | todo | topic | - | `case-studies/realtime-analytics/lambda-to-data-mesh` | From Lambda to Data Mesh: The Evolution of Data Architecture |  |
-| 322 | todo | topic | - | `case-studies/realtime-analytics/data-mesh-principles` | Data Mesh Principles: Domain-Oriented Data Ownership |  |
-| 323 | todo | topic | - | `case-studies/realtime-analytics/ml-serving-at-scale` | ML Serving at Scale: Feature Store and Model Registry |  |
-| 324 | todo | chapter-overview | - | `case-studies/realtime-analytics` | Real-Time Analytics Platforms |  |
-| 325 | todo | topic | - | `case-studies/distributed-sql/spanner-architecture` | Spanner: TrueTime, Paxos Groups, and External Consistency |  |
-| 326 | todo | topic | - | `case-studies/distributed-sql/cockroachdb-raft-hlc` | CockroachDB: Raft, HLC, and Parallel Commits |  |
-| 327 | todo | topic | - | `case-studies/distributed-sql/transactions-2pc-over-consensus` | Distributed Transactions in Practice: 2PC over Consensus |  |
-| 328 | todo | topic | - | `case-studies/distributed-sql/follower-reads-bounded-staleness` | Follower Reads and Bounded Staleness |  |
-| 329 | todo | chapter-overview | - | `case-studies/distributed-sql` | Distributed SQL: Spanner & CockroachDB |  |
-| 330 | todo | topic | - | `case-studies/famous-outages/github-2018-split-brain` | GitHub 2018: 43 Seconds of Partition, 24 Hours of Recovery |  |
-| 331 | todo | topic | - | `case-studies/famous-outages/roblox-2021-consul` | Roblox 2021: The 73-Hour Consul Outage |  |
-| 332 | todo | topic | - | `case-studies/famous-outages/cloudflare-2019-regex` | Cloudflare 2019: The Regex That Stalled the Edge |  |
-| 333 | todo | topic | - | `case-studies/famous-outages/meta-2021-bgp-dns` | Meta 2021: BGP, DNS, and Control Plane Centralization |  |
-| 334 | todo | chapter-overview | - | `case-studies/famous-outages` | Anatomy of Famous Outages |  |
-| 335 | todo | part-overview | - | `case-studies` | Case Studies |  |
+| 018 | todo | topic | - | `foundations/time-and-ordering/distributed-snapshots` | Distributed Snapshots: Chandy-Lamport and Consistent Cuts |  |
+| 019 | done | topic | standard | `foundations/time-and-ordering/hybrid-logical-clocks` | Hybrid Logical Clocks (HLC): Combining Physical and Logical Time | 2026-11-04, 4398 words |
+| 020 | done | topic | standard | `foundations/time-and-ordering/truetime-spanner` | Google TrueTime & Spanner: Working with Uncertainty | 2026-11-04, 4416 words |
+| 021 | done | topic | standard | `foundations/time-and-ordering/distributed-id-generation` | Distributed ID Generation: UUIDv7, Snowflake, ULID | 2026-11-04, 4500 words |
+| 022 | todo | chapter-overview | - | `foundations/time-and-ordering` | Time and Ordering | regenerate: restructure added a topic to chapter 1.3 (2026-11-11) |
+| 023 | todo | part-overview | - | `foundations` | Foundations & The Laws of Physics | regenerate: restructure added a topic to chapter 1.3 (2026-11-11) |
+| 024 | done | topic | standard | `communication/synchronous-protocols/rest` | REST: Constraints, Resources, and HTTP Contracts | 2026-11-04, 4254 words |
+| 025 | done | topic | deep | `communication/synchronous-protocols/http2-http3-quic` | HTTP/2 and HTTP/3: Multiplexing, HOL Blocking, and QUIC | 2026-11-04, 5411 words |
+| 026 | done | topic | deep | `communication/synchronous-protocols/grpc-protocol-buffers` | gRPC & Protocol Buffers: High-Performance RPC | 2026-11-04, 5929 words |
+| 027 | done | topic | deep | `communication/synchronous-protocols/grpc-streaming` | gRPC Streaming: Unary, Server-Streaming, Bi-directional | 2026-11-04, 5773 words |
+| 028 | done | topic | deep | `communication/synchronous-protocols/graphql` | GraphQL: Query Language and Federation Architecture | 2026-11-04, 5485 words |
+| 029 | done | topic | deep | `communication/synchronous-protocols/websocket-sse` | WebSocket and Server-Sent Events: Real-Time Communication | 2026-11-04, 6207 words |
+| 030 | done | topic | deep | `communication/synchronous-protocols/api-versioning` | API Versioning Strategies | 2026-11-05, 5165 words |
+| 031 | done | chapter-overview | - | `communication/synchronous-protocols` | Synchronous Communication Protocols | 2026-11-05, 1799 words |
+| 032 | done | topic | deep | `communication/async-messaging/message-queue-vs-event-streaming` | Message Queue vs. Event Streaming: Differences and Use Cases | 2026-11-05, 5009 words |
+| 033 | done | topic | deep | `communication/async-messaging/kafka-architecture` | Kafka Architecture: Topic, Partition, Consumer Group, Offset | 2026-11-05, 5951 words |
+| 034 | done | topic | deep | `communication/async-messaging/pulsar-vs-kafka` | Pulsar vs. Kafka: Architectural Comparison | 2026-11-05, 5415 words |
+| 035 | done | topic | deep | `communication/async-messaging/rabbitmq` | RabbitMQ: Exchange Types and Routing | 2026-11-05, 5793 words |
+| 036 | done | topic | deep | `communication/async-messaging/delivery-semantics` | At-Least-Once, At-Most-Once, and Exactly-Once Semantics | 2026-11-05, 5539 words |
+| 037 | done | topic | standard | `communication/async-messaging/asyncapi` | AsyncAPI: Documenting Asynchronous Contracts | 2026-11-05, 4494 words |
+| 038 | done | topic | deep | `communication/async-messaging/schema-evolution-registry` | Schema Evolution and Schema Registry: Avro, Protobuf, and Compatibility Modes | 2026-11-05, 5477 words |
+| 039 | done | topic | deep | `communication/async-messaging/dlq-poison-messages` | Dead Letter Queues and Poison Message Handling | 2026-11-05, 5672 words |
+| 040 | done | chapter-overview | - | `communication/async-messaging` | Asynchronous Messaging Fundamentals | 2026-11-05, 1790 words |
+| 041 | done | topic | deep | `communication/api-gateway/api-gateway-pattern` | API Gateway Pattern: Single Entry Point, Routing, Auth | 2026-11-05, 5464 words |
+| 042 | done | topic | deep | `communication/api-gateway/bff-pattern` | Backend for Frontend (BFF) Pattern | 2026-11-05, 4932 words |
+| 043 | done | topic | deep | `communication/api-gateway/openapi-swagger` | OpenAPI / Swagger: Contract-First Development | 2026-11-05, 5165 words |
+| 044 | done | topic | deep | `communication/api-gateway/contract-testing` | Consumer-Driven Contract Testing (Pact) | 2026-11-05, 4939 words |
+| 045 | done | topic | deep | `communication/api-gateway/idempotency` | Idempotency and Safe HTTP Methods | 2026-11-05, 5984 words |
+| 046 | done | topic | deep | `communication/api-gateway/throttling-rate-limiting` | Throttling and Rate Limiting at the Gateway Level | 2026-11-05, 5415 words |
+| 047 | done | chapter-overview | - | `communication/api-gateway` | API Gateway and Service Contracts | 2026-11-05, 1794 words |
+| 048 | done | topic | deep | `communication/load-balancing/l4-vs-l7` | L4 vs. L7 Load Balancing: Transport vs. Application Layer | 2026-11-05, 5478 words |
+| 049 | done | topic | deep | `communication/load-balancing/algorithms` | Algorithms: Round Robin, Least Connections, Weighted, Consistent Hashing | 2026-11-05, 6215 words |
+| 050 | done | topic | deep | `communication/load-balancing/client-vs-server-side` | Client-Side vs. Server-Side Load Balancing | 2026-11-06, 5751 words |
+| 051 | done | topic | deep | `communication/load-balancing/gslb-anycast` | Global Server Load Balancing (GSLB) and Anycast | 2026-11-06, 5993 words |
+| 052 | done | topic | deep | `communication/load-balancing/health-aware-routing` | Health-Aware Routing and Connection Draining | 2026-11-06, 6307 words |
+| 053 | done | chapter-overview | - | `communication/load-balancing` | Load Balancing | 2026-11-06, 1799 words |
+| 054 | done | part-overview | - | `communication` | Communication Protocols & API Design | 2026-11-06, 1992 words |
+| 055 | done | topic | deep | `data-management/data-partitioning/key-range-partitioning` | Key-Range Partitioning: Advantages and Range Scans | 2026-11-06, 5236 words |
+| 056 | done | topic | deep | `data-management/data-partitioning/hash-partitioning` | Hash Partitioning: Uniform Distribution | 2026-11-06, 5397 words |
+| 057 | done | topic | deep | `data-management/data-partitioning/skew-hot-spots` | Skew and Hot-Spot Problems: Real-World Scenarios | 2026-11-06, 6529 words |
+| 058 | done | topic | deep | `data-management/data-partitioning/consistent-hashing` | Consistent Hashing and Virtual Nodes (vnodes) | 2026-11-06, 5675 words |
+| 059 | done | topic | deep | `data-management/data-partitioning/dynamic-rebalancing` | Dynamic Rebalancing: Zero-Downtime Strategies | 2026-11-06, 6722 words |
+| 060 | done | topic | deep | `data-management/data-partitioning/colocated-joins` | Colocated Joins: Placing Related Data on the Same Shard | 2026-11-06, 5994 words |
+| 061 | done | topic | deep | `data-management/data-partitioning/secondary-indexes` | Secondary Indexes in Partitioned Data: Local vs. Global | 2026-11-06, 6551 words |
+| 062 | done | chapter-overview | - | `data-management/data-partitioning` | Data Partitioning / Sharding | 2026-11-06, 1796 words |
+| 063 | done | topic | deep | `data-management/replication/leader-based-replication` | Leader-Based Replication: Synchronous vs. Asynchronous | 2026-11-07, 5891 words |
+| 064 | done | topic | deep | `data-management/replication/failover-leader-election` | Failover and Leader Election: The Split-Brain Risk | 2026-11-08, 6841 words |
+| 065 | done | topic | deep | `data-management/replication/replication-lag` | Replication Lag Problems: Read-Your-Own-Writes | 2026-11-09, 6120 words |
+| 066 | done | topic | deep | `data-management/replication/multi-leader-replication` | Multi-Leader Replication: Write Conflicts and Resolution | 2026-11-10, 6753 words |
+| 067 | done | topic | deep | `data-management/replication/leaderless-replication` | Leaderless Replication (Dynamo-style): Quorum R + W > N | 2026-11-11, 5488 words |
+| 068 | todo | topic | - | `data-management/replication/anti-entropy-merkle` | Anti-Entropy: Read Repair and Merkle Trees |  |
+| 069 | todo | chapter-overview | - | `data-management/replication` | Replication Strategies |  |
+| 070 | todo | topic | - | `data-management/consistency-models/linearizability` | Linearizability: The Strongest Guarantee, the Highest Cost |  |
+| 071 | todo | topic | - | `data-management/consistency-models/serializability` | Serializability: Transaction Isolation |  |
+| 072 | todo | topic | - | `data-management/consistency-models/weak-isolation-mvcc` | Weak Isolation and MVCC: Read Committed, Snapshot Isolation, Write Skew |  |
+| 073 | todo | topic | - | `data-management/consistency-models/cap-theorem` | CAP Theorem: CP vs. AP Systems |  |
+| 074 | todo | topic | - | `data-management/consistency-models/pacelc-theorem` | PACELC Theorem: The Latency-Consistency Trade-off |  |
+| 075 | todo | topic | - | `data-management/consistency-models/causal-consistency-session-guarantees` | Causal Consistency and Session Guarantees: The Middle of the Spectrum |  |
+| 076 | todo | topic | - | `data-management/consistency-models/eventual-consistency` | Eventual Consistency: Last Write Wins (LWW) and Its Weaknesses |  |
+| 077 | todo | topic | - | `data-management/consistency-models/crdts` | CRDTs: Conflict-free Replicated Data Types |  |
+| 078 | todo | chapter-overview | - | `data-management/consistency-models` | Consistency Models |  |
+| 079 | todo | topic | - | `data-management/storage-engines/lsm-tree-vs-b-tree` | LSM-Tree vs. B-Tree: Write and Read Performance Trade-offs |  |
+| 080 | todo | topic | - | `data-management/storage-engines/sstables-memtable-compaction` | SSTables, Memtable, and Compaction Strategies |  |
+| 081 | todo | topic | - | `data-management/storage-engines/bloom-filters` | Bloom Filters: Reducing Disk Reads |  |
+| 082 | todo | topic | - | `data-management/storage-engines/write-ahead-log` | Write-Ahead Log (WAL): The Foundation of Durability |  |
+| 083 | todo | topic | - | `data-management/storage-engines/erasure-coding` | Erasure Coding vs. Replication: Durability per Byte |  |
+| 084 | todo | topic | - | `data-management/storage-engines/columnar-storage` | Columnar Storage: Advantages in Analytical Queries |  |
+| 085 | todo | chapter-overview | - | `data-management/storage-engines` | Storage Engines and Data Structures |  |
+| 086 | todo | topic | - | `data-management/distributed-caching/cache-strategies` | Cache Strategies: Cache-Aside, Read-Through, Write-Through, Write-Behind |  |
+| 087 | todo | topic | - | `data-management/distributed-caching/cache-invalidation` | Cache Invalidation: TTL, Event-Based, and Versioned Keys |  |
+| 088 | todo | topic | - | `data-management/distributed-caching/redis-cluster` | Redis Cluster Architecture: Sharding, Replication, Sentinel |  |
+| 089 | todo | topic | - | `data-management/distributed-caching/cache-stampede` | Cache Stampede and Thundering Herd: Prevention Techniques |  |
+| 090 | todo | topic | - | `data-management/distributed-caching/distributed-vs-local` | Distributed vs. Local Cache: Consistency Trade-offs |  |
+| 091 | todo | topic | - | `data-management/distributed-caching/memcached-vs-redis` | Memcached vs. Redis: Architectural Comparison |  |
+| 092 | todo | chapter-overview | - | `data-management/distributed-caching` | Distributed Caching |  |
+| 093 | todo | part-overview | - | `data-management` | Data Management & Consistency |  |
+| 094 | todo | topic | - | `data-processing/batch-processing/mapreduce` | The MapReduce Paradigm: Functional Roots, Map, Shuffle, Reduce |  |
+| 095 | todo | topic | - | `data-processing/batch-processing/distributed-sort` | Distributed Sort: The Challenge of the Shuffle Phase |  |
+| 096 | todo | topic | - | `data-processing/batch-processing/hadoop-to-spark` | From Hadoop to Apache Spark: In-Memory Processing, RDDs, and DataFrames |  |
+| 097 | todo | topic | - | `data-processing/batch-processing/checkpointing-fault-tolerance` | Checkpointing and Fault Tolerance |  |
+| 098 | todo | topic | - | `data-processing/batch-processing/straggler-speculative-execution` | Straggler Tasks: Speculative Execution |  |
+| 099 | todo | chapter-overview | - | `data-processing/batch-processing` | Batch Processing |  |
+| 100 | todo | topic | - | `data-processing/stream-processing/bounded-vs-unbounded` | Bounded vs. Unbounded Data |  |
+| 101 | todo | topic | - | `data-processing/stream-processing/event-time-vs-processing-time` | Event Time vs. Processing Time: The Critical Distinction |  |
+| 102 | todo | topic | - | `data-processing/stream-processing/windowing` | Windowing: Tumbling, Sliding, and Session Windows |  |
+| 103 | todo | topic | - | `data-processing/stream-processing/watermarks` | Watermarks: The Art of Managing Late Data |  |
+| 104 | todo | topic | - | `data-processing/stream-processing/triggers-accumulation` | Triggers and Accumulation Modes |  |
+| 105 | todo | topic | - | `data-processing/stream-processing/apache-flink` | Apache Flink: Depth of Stateful Stream Processing |  |
+| 106 | todo | chapter-overview | - | `data-processing/stream-processing` | Stream Processing |  |
+| 107 | todo | topic | - | `data-processing/hybrid-architectures/commit-log-abstraction` | The Commit Log Abstraction: The Core Idea Behind Kafka/Pulsar |  |
+| 108 | todo | topic | - | `data-processing/hybrid-architectures/lambda-architecture` | Lambda Architecture: The Complexity of Batch + Speed Layers |  |
+| 109 | todo | topic | - | `data-processing/hybrid-architectures/kappa-architecture` | Kappa Architecture: Everything Is a Stream |  |
+| 110 | todo | topic | - | `data-processing/hybrid-architectures/log-compaction` | Log Compaction: Kafka Compacted Topics and Tombstones |  |
+| 111 | todo | topic | - | `data-processing/hybrid-architectures/change-data-capture` | Change Data Capture (CDC): Real-Time Synchronization |  |
+| 112 | todo | topic | - | `data-processing/hybrid-architectures/debezium` | Debezium: Practical Database CDC Implementation |  |
+| 113 | todo | chapter-overview | - | `data-processing/hybrid-architectures` | Hybrid Architectures and the Log Abstraction |  |
+| 114 | todo | part-overview | - | `data-processing` | Data Processing Architectures |  |
+| 115 | todo | topic | - | `coordination/distributed-transactions/acid-vs-base` | ACID vs. BASE: Guarantees and Trade-offs |  |
+| 116 | todo | topic | - | `coordination/distributed-transactions/two-phase-commit` | Two-Phase Commit (2PC): Blocking Nature and Risks |  |
+| 117 | todo | topic | - | `coordination/distributed-transactions/three-phase-commit` | Three-Phase Commit (3PC): Why Non-Blocking Commit Fails Under Partitions |  |
+| 118 | todo | topic | - | `coordination/distributed-transactions/saga-pattern` | The SAGA Pattern: Choreography vs. Orchestration |  |
+| 119 | todo | topic | - | `coordination/distributed-transactions/compensating-transactions` | Compensating Transactions |  |
+| 120 | todo | topic | - | `coordination/distributed-transactions/outbox-pattern` | The Outbox Pattern: Atomic DB Write + Message Publishing |  |
+| 121 | todo | topic | - | `coordination/distributed-transactions/inbox-pattern-idempotent-consumers` | The Inbox Pattern and Idempotent Consumers |  |
+| 122 | todo | topic | - | `coordination/distributed-transactions/durable-execution-workflow-engines` | Durable Execution: Temporal and Workflow Engines |  |
+| 123 | todo | chapter-overview | - | `coordination/distributed-transactions` | Distributed Transactions |  |
+| 124 | todo | topic | - | `coordination/consensus-algorithms/flp-impossibility` | The FLP Impossibility Result: Why Consensus Is Hard |  |
+| 125 | todo | topic | - | `coordination/consensus-algorithms/total-order-broadcast-smr` | Total Order Broadcast and State Machine Replication |  |
+| 126 | todo | topic | - | `coordination/consensus-algorithms/paxos` | Paxos: Core Logic, Prepare and Accept Phases |  |
+| 127 | todo | topic | - | `coordination/consensus-algorithms/raft` | Raft: Leader Election, Log Replication, Membership Changes |  |
+| 128 | todo | topic | - | `coordination/consensus-algorithms/zab-zookeeper` | Zab (ZooKeeper Atomic Broadcast): Epochs and Zxid |  |
+| 129 | todo | topic | - | `coordination/consensus-algorithms/etcd` | etcd: Distributed K-V Storage on top of Raft |  |
+| 130 | todo | topic | - | `coordination/consensus-algorithms/byzantine-fault-tolerance` | Byzantine Fault Tolerance: PBFT, Proof of Work / Proof of Stake |  |
+| 131 | todo | chapter-overview | - | `coordination/consensus-algorithms` | Consensus Algorithms |  |
+| 132 | todo | topic | - | `coordination/distributed-locking/lock-fundamentals` | Lock Fundamentals: Mutual Exclusion in Distributed Systems |  |
+| 133 | todo | topic | - | `coordination/distributed-locking/lease-based-locking` | Lease-Based Locking: TTL, Renewal, and Expiry Semantics |  |
+| 134 | todo | topic | - | `coordination/distributed-locking/fencing-tokens` | Fencing Tokens: Preventing Stale Lock Holders |  |
+| 135 | todo | topic | - | `coordination/distributed-locking/redlock` | Redlock Algorithm: The Redis Distributed Lock Debate |  |
+| 136 | todo | topic | - | `coordination/distributed-locking/zookeeper-etcd-recipes` | ZooKeeper and etcd Recipes: Production Lock Implementations |  |
+| 137 | todo | chapter-overview | - | `coordination/distributed-locking` | Distributed Locking |  |
+| 138 | todo | part-overview | - | `coordination` | Coordination & Consensus |  |
+| 139 | todo | topic | - | `microservice-patterns/service-decomposition/domain-driven-design` | Domain-Driven Design (DDD): Bounded Context and Ubiquitous Language |  |
+| 140 | todo | topic | - | `microservice-patterns/service-decomposition/conways-law` | Drawing Service Boundaries: Conway's Law |  |
+| 141 | todo | topic | - | `microservice-patterns/service-decomposition/strangler-fig` | The Strangler Fig Pattern: Safe Migration from Monolith |  |
+| 142 | todo | topic | - | `microservice-patterns/service-decomposition/decompose-by-capability` | Decompose by Business Capability vs. Subdomain |  |
+| 143 | todo | topic | - | `microservice-patterns/service-decomposition/distributed-monolith` | Anti-Pattern: The Distributed Monolith - How to Avoid It |  |
+| 144 | todo | topic | - | `microservice-patterns/service-decomposition/service-granularity` | Service Granularity: How Small Is Too Small? |  |
+| 145 | todo | topic | - | `microservice-patterns/service-decomposition/modular-monolith` | The Modular Monolith: When Not to Distribute |  |
+| 146 | todo | chapter-overview | - | `microservice-patterns/service-decomposition` | Service Decomposition Strategies |  |
+| 147 | todo | topic | - | `microservice-patterns/structural-patterns/sidecar-pattern` | The Sidecar Pattern |  |
+| 148 | todo | topic | - | `microservice-patterns/structural-patterns/ambassador-pattern` | The Ambassador Pattern: Helper Container as Proxy |  |
+| 149 | todo | topic | - | `microservice-patterns/structural-patterns/adapter-pattern` | The Adapter Pattern: Standardized Interfaces |  |
+| 150 | todo | topic | - | `microservice-patterns/structural-patterns/anti-corruption-layer` | Anti-Corruption Layer (ACL): Integration with Legacy Systems |  |
+| 151 | todo | topic | - | `microservice-patterns/structural-patterns/shared-library-vs-sidecar` | Shared Library vs. Sidecar: Dependency Management Trade-offs |  |
+| 152 | todo | chapter-overview | - | `microservice-patterns/structural-patterns` | Structural Patterns |  |
+| 153 | todo | topic | - | `microservice-patterns/service-discovery/client-side-discovery` | Client-Side Discovery: Registry-Aware Clients and xDS |  |
+| 154 | todo | topic | - | `microservice-patterns/service-discovery/server-side-discovery` | Server-Side Discovery: Load Balancer + Registry |  |
+| 155 | todo | topic | - | `microservice-patterns/service-discovery/self-registration` | Self-Registration vs. Third-Party Registration |  |
+| 156 | todo | topic | - | `microservice-patterns/service-discovery/consul` | Consul: Service Discovery + Health Checking + KV Store |  |
+| 157 | todo | topic | - | `microservice-patterns/service-discovery/dns-based-discovery` | DNS-Based Discovery: Kubernetes DNS |  |
+| 158 | todo | topic | - | `microservice-patterns/service-discovery/health-check-endpoint` | Health Check Endpoint Pattern |  |
+| 159 | todo | chapter-overview | - | `microservice-patterns/service-discovery` | Service Discovery |  |
+| 160 | todo | topic | - | `microservice-patterns/data-management-patterns/database-per-service` | Database per Service: Independence and Isolation |  |
+| 161 | todo | topic | - | `microservice-patterns/data-management-patterns/shared-database-antipattern` | Shared Database Anti-Pattern: Why It Is Dangerous |  |
+| 162 | todo | topic | - | `microservice-patterns/data-management-patterns/api-composition` | API Composition: The Distributed Join Problem |  |
+| 163 | todo | topic | - | `microservice-patterns/data-management-patterns/polyglot-persistence` | Polyglot Persistence: The Right Database for the Right Job |  |
+| 164 | todo | topic | - | `microservice-patterns/data-management-patterns/materialized-view` | Cross-Service Query: The Materialized View Pattern |  |
+| 165 | todo | chapter-overview | - | `microservice-patterns/data-management-patterns` | Data Management Patterns |  |
+| 166 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/event-driven-architecture` | Event-Driven Architecture: Events, Commands, and Event-Carried State Transfer |  |
+| 167 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/event-sourcing` | Event Sourcing: The Event Chain Instead of State |  |
+| 168 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/event-store-design` | Event Store Design: The Append-Only Log |  |
+| 169 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/cqrs` | CQRS: Separating Read and Write Models |  |
+| 170 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/projections` | Projections: Building Read Models from Events |  |
+| 171 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/event-versioning` | Event Versioning and Schema Evolution |  |
+| 172 | todo | topic | - | `microservice-patterns/event-sourcing-cqrs/snapshots` | Snapshots: Optimizing Long Event Chains |  |
+| 173 | todo | chapter-overview | - | `microservice-patterns/event-sourcing-cqrs` | Event-Driven Architecture, Event Sourcing, and CQRS |  |
+| 174 | todo | part-overview | - | `microservice-patterns` | Microservice Architecture Patterns |  |
+| 175 | todo | topic | - | `resilience/flow-control/queueing-theory-littles-law` | Queueing Theory Foundations: Little's Law and the Utilization Curve |  |
+| 176 | todo | topic | - | `resilience/flow-control/backpressure` | Backpressure: Pushing Load Back to the Source |  |
+| 177 | todo | topic | - | `resilience/flow-control/load-shedding` | Load Shedding: Which Requests to Drop and How |  |
+| 178 | todo | topic | - | `resilience/flow-control/priority-queues` | Priority Queues: Protecting Critical Requests |  |
+| 179 | todo | topic | - | `resilience/flow-control/rate-limiting` | Rate Limiting: Token Bucket, Leaky Bucket, Fixed and Sliding Window |  |
+| 180 | todo | topic | - | `resilience/flow-control/adaptive-rate-limiting` | Adaptive Rate Limiting: Dynamic Limits |  |
+| 181 | todo | topic | - | `resilience/flow-control/retry-storms-metastable-failures` | Retry Storms and Metastable Failures: Work Amplification and Retry Budgets |  |
+| 182 | todo | chapter-overview | - | `resilience/flow-control` | Flow Control and Overload Management |  |
+| 183 | todo | topic | - | `resilience/protection-patterns/circuit-breaker` | Circuit Breaker: The Closed to Open to Half-Open Cycle |  |
+| 184 | todo | topic | - | `resilience/protection-patterns/bulkhead-pattern` | Bulkhead Pattern: Thread Pool and Semaphore Isolation |  |
+| 185 | todo | topic | - | `resilience/protection-patterns/retry-exponential-backoff` | Retry with Exponential Backoff and Jitter |  |
+| 186 | todo | topic | - | `resilience/protection-patterns/timeouts` | Timeouts: Why They Are So Hard to Configure |  |
+| 187 | todo | topic | - | `resilience/protection-patterns/hedged-requests` | Hedged Requests and Tail-Latency Tolerance |  |
+| 188 | todo | topic | - | `resilience/protection-patterns/fallback-strategies` | Fallback Strategies: Degraded Service, Cached Response |  |
+| 189 | todo | topic | - | `resilience/protection-patterns/resilience-libraries-vs-mesh` | Resilience Libraries vs. Mesh Policies: Resilience4j, Polly, and Envoy |  |
+| 190 | todo | chapter-overview | - | `resilience/protection-patterns` | Protection Patterns |  |
+| 191 | todo | topic | - | `resilience/failure-detection/heartbeats-timeouts` | Heartbeats and the Science of Timeout Configuration |  |
+| 192 | todo | topic | - | `resilience/failure-detection/gossip-protocols` | Gossip Protocols: Information Dissemination via Epidemic Algorithms |  |
+| 193 | todo | topic | - | `resilience/failure-detection/phi-accrual-detector` | Phi Accrual Failure Detector: Viewing Failure as a Probability |  |
+| 194 | todo | topic | - | `resilience/failure-detection/swim-protocol` | SWIM Protocol: Scalable Membership |  |
+| 195 | todo | chapter-overview | - | `resilience/failure-detection` | Failure Detection and Membership Protocols |  |
+| 196 | todo | topic | - | `resilience/chaos-engineering/chaos-principles` | Principles of Chaos Engineering: Hypothesis, Blast Radius, Observation |  |
+| 197 | todo | topic | - | `resilience/chaos-engineering/fault-injection` | Fault Injection: Simulating Latency, Exceptions, and Partitions |  |
+| 198 | todo | topic | - | `resilience/chaos-engineering/gameday` | GameDay: Disaster Scenario Drills |  |
+| 199 | todo | topic | - | `resilience/chaos-engineering/chaos-automation` | Automating Chaos: Litmus, Chaos Toolkit |  |
+| 200 | todo | chapter-overview | - | `resilience/chaos-engineering` | Chaos Engineering |  |
+| 201 | todo | topic | - | `resilience/multi-region-dr/availability-math-rpo-rto` | RPO, RTO, and Availability Math: Composing the Nines |  |
+| 202 | todo | topic | - | `resilience/multi-region-dr/backup-pitr-restore` | Backup, Point-in-Time Recovery, and Restore Testing |  |
+| 203 | todo | topic | - | `resilience/multi-region-dr/active-passive-vs-active-active` | Active-Passive vs. Active-Active Multi-Region |  |
+| 204 | todo | topic | - | `resilience/multi-region-dr/cell-based-architecture` | Cell-Based Architecture and Shuffle Sharding: Limiting Blast Radius |  |
+| 205 | todo | chapter-overview | - | `resilience/multi-region-dr` | Multi-Region and Disaster Recovery |  |
+| 206 | todo | part-overview | - | `resilience` | Resilience & Production Engineering |  |
+| 207 | todo | topic | - | `observability/logs-metrics-traces/structured-logging` | Structured Logging: JSON Logs and Correlation IDs |  |
+| 208 | todo | topic | - | `observability/logs-metrics-traces/log-aggregation-elk` | Log Aggregation: ELK Stack (Elasticsearch, Logstash, Kibana) |  |
+| 209 | todo | topic | - | `observability/logs-metrics-traces/metrics` | Metrics: Counter, Gauge, Histogram, Summary |  |
+| 210 | todo | topic | - | `observability/logs-metrics-traces/red-vs-use-method` | The RED Method (Rate, Errors, Duration) vs. the USE Method |  |
+| 211 | todo | topic | - | `observability/logs-metrics-traces/distributed-tracing` | Distributed Tracing: Span, Trace, and Baggage Propagation |  |
+| 212 | todo | topic | - | `observability/logs-metrics-traces/signal-correlation` | Correlation: Joining Three Signals from a Single Failure Event |  |
+| 213 | todo | chapter-overview | - | `observability/logs-metrics-traces` | The Three Pillars: Logs, Metrics, Traces |  |
+| 214 | todo | topic | - | `observability/observability-tools/opentelemetry` | OpenTelemetry: The Vendor-Neutral Instrumentation Standard |  |
+| 215 | todo | topic | - | `observability/observability-tools/prometheus` | Prometheus: Pull-Based Metric Collection and PromQL |  |
+| 216 | todo | topic | - | `observability/observability-tools/grafana` | Grafana: Dashboard Design and Alerting |  |
+| 217 | todo | topic | - | `observability/observability-tools/tracing-backends` | Jaeger / Zipkin / Tempo: Distributed Tracing Backends |  |
+| 218 | todo | topic | - | `observability/observability-tools/loki` | Loki: Log Aggregation with the Prometheus Philosophy |  |
+| 219 | todo | topic | - | `observability/observability-tools/ebpf-observability` | eBPF: Kernel-Level Observability (Cilium, Pixie) |  |
+| 220 | todo | chapter-overview | - | `observability/observability-tools` | Tools and Standards |  |
+| 221 | todo | topic | - | `observability/slo-sla-error-budgets/sli` | SLI (Service Level Indicator): What Should Be Measured? |  |
+| 222 | todo | topic | - | `observability/slo-sla-error-budgets/slo` | SLO (Service Level Objective): The Art of Setting Targets |  |
+| 223 | todo | topic | - | `observability/slo-sla-error-budgets/sla` | SLA (Service Level Agreement): Legal Obligations |  |
+| 224 | todo | topic | - | `observability/slo-sla-error-budgets/error-budget` | Error Budget: Balancing Innovation and Reliability |  |
+| 225 | todo | topic | - | `observability/slo-sla-error-budgets/toil` | Toil: Measuring and Reducing Operational Burden |  |
+| 226 | todo | chapter-overview | - | `observability/slo-sla-error-budgets` | SLOs, SLAs, and Error Budgets |  |
+| 227 | todo | topic | - | `observability/alerting-incident-response/slo-burn-rate-alerting` | Symptom-Based Alerting and SLO Burn-Rate Alerts |  |
+| 228 | todo | topic | - | `observability/alerting-incident-response/incident-command-on-call` | Incident Command and On-Call: Running an Incident |  |
+| 229 | todo | topic | - | `observability/alerting-incident-response/blameless-postmortems` | Blameless Postmortems: Learning from Failure |  |
+| 230 | todo | chapter-overview | - | `observability/alerting-incident-response` | Alerting and Incident Response |  |
+| 231 | todo | part-overview | - | `observability` | Observability |  |
+| 232 | todo | topic | - | `kubernetes/fundamentals/control-plane-reconciliation` | Control Plane: API Server, Watch, and the Reconciliation Loop |  |
+| 233 | todo | topic | - | `kubernetes/fundamentals/pod-deployment-statefulset` | Pod, Deployment, StatefulSet, DaemonSet: When to Use Which |  |
+| 234 | todo | topic | - | `kubernetes/fundamentals/kubernetes-scheduler` | The Kubernetes Scheduler: The Mechanics of Placement Decisions |  |
+| 235 | todo | topic | - | `kubernetes/fundamentals/etcd-cluster-state` | etcd in Kubernetes: Watches, Resource Versions, and Compaction |  |
+| 236 | todo | topic | - | `kubernetes/fundamentals/hpa-keda` | Pod Autoscaling: HPA, VPA, and KEDA |  |
+| 237 | todo | topic | - | `kubernetes/fundamentals/node-affinity-taints` | Node Affinity, Taints and Tolerations: Fine-Grained Placement |  |
+| 238 | todo | topic | - | `kubernetes/fundamentals/operator-pattern` | The Operator Pattern: Extending Kubernetes |  |
+| 239 | todo | chapter-overview | - | `kubernetes/fundamentals` | Kubernetes: The Operating System for Distributed Systems |  |
+| 240 | todo | topic | - | `kubernetes/runtime-and-operations/container-internals` | Container Internals: Namespaces, cgroups v2, and the OCI Runtime |  |
+| 241 | todo | topic | - | `kubernetes/runtime-and-operations/resource-management-qos` | Resource Management: Requests, Limits, QoS, OOMKill, and CPU Throttling |  |
+| 242 | todo | topic | - | `kubernetes/runtime-and-operations/kubernetes-networking` | Kubernetes Networking: Services, kube-proxy, and CNI |  |
+| 243 | todo | topic | - | `kubernetes/runtime-and-operations/persistent-storage-csi` | Persistent Storage: PV, PVC, and the CSI Interface |  |
+| 244 | todo | topic | - | `kubernetes/runtime-and-operations/kubernetes-probes` | Liveness, Readiness, and Startup Probes |  |
+| 245 | todo | topic | - | `kubernetes/runtime-and-operations/graceful-termination-pdb` | Graceful Termination and PodDisruptionBudgets |  |
+| 246 | todo | topic | - | `kubernetes/runtime-and-operations/cluster-autoscaling` | Cluster Autoscaling: Cluster Autoscaler and Karpenter |  |
+| 247 | todo | chapter-overview | - | `kubernetes/runtime-and-operations` | Container Internals & Kubernetes in Production |  |
+| 248 | todo | part-overview | - | `kubernetes` | Container Orchestration & Kubernetes |  |
+| 249 | todo | topic | - | `service-mesh/service-mesh-architecture/why-service-mesh` | Why Service Mesh Exists: L4 vs. L7 Problems |  |
+| 250 | todo | topic | - | `service-mesh/service-mesh-architecture/envoy-proxy` | Envoy Proxy: The Backbone of the Data Plane |  |
+| 251 | todo | topic | - | `service-mesh/service-mesh-architecture/istio` | Istio: istiod and the Consolidated Control Plane |  |
+| 252 | todo | topic | - | `service-mesh/service-mesh-architecture/linkerd` | Linkerd: A Lightweight Alternative with a Rust-Based Proxy |  |
+| 253 | todo | topic | - | `service-mesh/service-mesh-architecture/traffic-management` | Traffic Management: Load Balancing, Retry, and Fault Injection |  |
+| 254 | todo | topic | - | `service-mesh/service-mesh-architecture/mesh-observability` | Observability at the Mesh Level: Automatic Telemetry |  |
+| 255 | todo | topic | - | `service-mesh/service-mesh-architecture/sidecarless-ambient-mesh` | Sidecarless Mesh: Istio Ambient Mode and Cilium Service Mesh |  |
+| 256 | todo | chapter-overview | - | `service-mesh/service-mesh-architecture` | Service Mesh Architecture |  |
+| 257 | todo | topic | - | `service-mesh/network-policies-mtls/kubernetes-network-policy` | Kubernetes Network Policy: Pod-Level Firewall |  |
+| 258 | todo | topic | - | `service-mesh/network-policies-mtls/mtls` | mTLS: Mutual Authentication and Encryption |  |
+| 259 | todo | topic | - | `service-mesh/network-policies-mtls/certificate-lifecycle` | Certificate Lifecycle: Cert-Manager, SPIFFE / SPIRE |  |
+| 260 | todo | topic | - | `service-mesh/network-policies-mtls/ebpf-networking` | eBPF Networking: Kernel-Level CNI with Cilium |  |
+| 261 | todo | topic | - | `service-mesh/network-policies-mtls/ingress-vs-gateway-api` | Ingress vs. Gateway API: Next-Generation Traffic Management |  |
+| 262 | todo | chapter-overview | - | `service-mesh/network-policies-mtls` | Network Policies and mTLS |  |
+| 263 | todo | part-overview | - | `service-mesh` | Service Mesh & Network Security |  |
+| 264 | todo | topic | - | `security/authentication-authorization/oauth2-oidc` | OAuth 2.0 & OIDC: Identity Management in a Distributed Environment |  |
+| 265 | todo | topic | - | `security/authentication-authorization/jwt` | JWT: Signing, Verification, and Refresh Strategies |  |
+| 266 | todo | topic | - | `security/authentication-authorization/identity-propagation` | End-User Identity Propagation: Token Exchange and Internal Tokens |  |
+| 267 | todo | topic | - | `security/authentication-authorization/api-key-vs-service-account` | API Key vs. Service Account: Service Identity |  |
+| 268 | todo | topic | - | `security/authentication-authorization/rbac-vs-abac` | RBAC vs. ABAC: Authorization Models |  |
+| 269 | todo | topic | - | `security/authentication-authorization/workload-identity` | Workload Identity: Service Identity with SPIFFE / SPIRE |  |
+| 270 | todo | chapter-overview | - | `security/authentication-authorization` | Authentication and Authorization |  |
+| 271 | todo | topic | - | `security/zero-trust/never-trust-always-verify` | Engineering the Never Trust, Always Verify Principle |  |
+| 272 | todo | topic | - | `security/zero-trust/micro-segmentation` | Micro-Segmentation: The Least-Privilege Network Model |  |
+| 273 | todo | topic | - | `security/zero-trust/beyondcorp` | BeyondCorp and Identity-Aware Proxies: Google's Zero Trust Model |  |
+| 274 | todo | topic | - | `security/zero-trust/continuous-verification` | Continuous Verification: Dynamic Security Decisions |  |
+| 275 | todo | topic | - | `security/zero-trust/policy-as-code` | Policy as Code: OPA, Gatekeeper, and Kyverno |  |
+| 276 | todo | chapter-overview | - | `security/zero-trust` | Zero Trust Architecture |  |
+| 277 | todo | topic | - | `security/secrets-management/hashicorp-vault` | HashiCorp Vault: Dynamic Secrets, Leases, and Rotation |  |
+| 278 | todo | topic | - | `security/secrets-management/kubernetes-secrets` | Kubernetes Secrets: Why They Are Not Enough |  |
+| 279 | todo | topic | - | `security/secrets-management/envelope-encryption` | Envelope Encryption: The Key Encryption Key (KEK) Model |  |
+| 280 | todo | topic | - | `security/secrets-management/encryption-in-transit-at-rest` | Encryption in Transit vs. At Rest: Both Are Mandatory |  |
+| 281 | todo | topic | - | `security/secrets-management/supply-chain-security` | Supply Chain Security: The SLSA Framework and Sigstore |  |
+| 282 | todo | chapter-overview | - | `security/secrets-management` | Secrets Management and Encryption |  |
+| 283 | todo | part-overview | - | `security` | Security Architecture |  |
+| 284 | todo | topic | - | `deployment/deployment-patterns/blue-green-deployment` | Blue/Green Deployment: Instant Cutover and Rollback |  |
+| 285 | todo | topic | - | `deployment/deployment-patterns/canary-release` | Canary Release: Progressive Traffic Shifting |  |
+| 286 | todo | topic | - | `deployment/deployment-patterns/rolling-update` | Rolling Update: Staged Update Strategy |  |
+| 287 | todo | topic | - | `deployment/deployment-patterns/feature-flags` | Feature Flags: Decoupling Deployment from Release |  |
+| 288 | todo | topic | - | `deployment/deployment-patterns/ab-testing` | A/B Testing: Experimentation via Traffic Splitting |  |
+| 289 | todo | topic | - | `deployment/deployment-patterns/shadow-deployment` | Shadow Deployment: Cloning Production Traffic |  |
+| 290 | todo | topic | - | `deployment/deployment-patterns/zero-downtime-db-migrations` | Zero-Downtime Database Migrations: The Expand/Contract Pattern |  |
+| 291 | todo | chapter-overview | - | `deployment/deployment-patterns` | Deployment Patterns |  |
+| 292 | todo | topic | - | `deployment/gitops-cicd/gitops-principles` | GitOps Principles: Git as the Single Source of Truth |  |
+| 293 | todo | topic | - | `deployment/gitops-cicd/argocd-flux` | ArgoCD and Flux: GitOps Operators for Kubernetes |  |
+| 294 | todo | topic | - | `deployment/gitops-cicd/progressive-delivery` | Automated Canary Analysis: Flagger and Argo Rollouts |  |
+| 295 | todo | topic | - | `deployment/gitops-cicd/pipeline-as-code` | Pipeline as Code: Reproducible CI/CD |  |
+| 296 | todo | topic | - | `deployment/gitops-cicd/artifact-management` | Artifact Management: OCI Registry and Helm Charts |  |
+| 297 | todo | topic | - | `deployment/gitops-cicd/environment-promotion` | Environment Promotion: Dev to Staging to Production |  |
+| 298 | todo | chapter-overview | - | `deployment/gitops-cicd` | GitOps and CI/CD |  |
+| 299 | todo | topic | - | `deployment/platform-engineering/internal-developer-platform` | Internal Developer Platform (IDP): What It Is and Why It Is Needed |  |
+| 300 | todo | topic | - | `deployment/platform-engineering/backstage` | Backstage: Service Catalog and Developer Portal |  |
+| 301 | todo | topic | - | `deployment/platform-engineering/golden-paths` | Golden Paths: Speed and Security Through Standardized Routes |  |
+| 302 | todo | topic | - | `deployment/platform-engineering/infrastructure-as-code` | Infrastructure as Code: Terraform and Pulumi |  |
+| 303 | todo | topic | - | `deployment/platform-engineering/cost-optimization` | Cost Optimization: Monitoring and Optimizing Resource Utilization |  |
+| 304 | todo | chapter-overview | - | `deployment/platform-engineering` | Platform Engineering |  |
+| 305 | todo | topic | - | `deployment/distributed-testing/integration-testing` | Integration Testing: Service Boundaries and Contract Verification |  |
+| 306 | todo | topic | - | `deployment/distributed-testing/end-to-end-testing` | End-to-End Testing: Balancing Coverage and Flakiness |  |
+| 307 | todo | topic | - | `deployment/distributed-testing/testing-event-driven` | Testing Event-Driven Systems: Async Flows and Eventual Consistency |  |
+| 308 | todo | topic | - | `deployment/distributed-testing/staging-fidelity` | Staging Fidelity: How Realistic Is Your Test Environment? |  |
+| 309 | todo | topic | - | `deployment/distributed-testing/test-data-management` | Test Data Management: Synthetic Data, Anonymization, and Seeding |  |
+| 310 | todo | topic | - | `deployment/distributed-testing/load-performance-testing` | Load and Performance Testing: k6, Locust, and Capacity Validation |  |
+| 311 | todo | topic | - | `deployment/distributed-testing/jepsen-deterministic-simulation` | Correctness Testing: Jepsen and Deterministic Simulation |  |
+| 312 | todo | topic | - | `deployment/distributed-testing/formal-specification-tla` | Formal Specification: TLA+ and Model Checking |  |
+| 313 | todo | chapter-overview | - | `deployment/distributed-testing` | Testing in Distributed Systems |  |
+| 314 | todo | part-overview | - | `deployment` | Deployment Strategies & Operations |  |
+| 315 | todo | topic | - | `case-studies/apache-kafka/disk-persistence-zero-copy` | Disk-Based Persistence and Zero-Copy Optimization |  |
+| 316 | todo | topic | - | `case-studies/apache-kafka/kraft-mode` | KRaft Mode: Eliminating the ZooKeeper Dependency |  |
+| 317 | todo | topic | - | `case-studies/apache-kafka/consumer-group-rebalancing` | Consumer Group Rebalancing: Failure Scenarios |  |
+| 318 | todo | topic | - | `case-studies/apache-kafka/exactly-once-semantics` | Exactly-Once Semantics: Idempotent Producer + Transactional API |  |
+| 319 | todo | topic | - | `case-studies/apache-kafka/kafka-streams-ksqldb` | Kafka Streams vs. ksqlDB: When to Use Which |  |
+| 320 | todo | chapter-overview | - | `case-studies/apache-kafka` | Messaging Platform: Apache Kafka |  |
+| 321 | todo | topic | - | `case-studies/dynamodb-cassandra/sla-driven-design` | SLA-Driven Design: The P99.9 Latency Guarantee |  |
+| 322 | todo | topic | - | `case-studies/dynamodb-cassandra/dynamodb-data-model` | DynamoDB's Data Model: Partition Key + Sort Key |  |
+| 323 | todo | topic | - | `case-studies/dynamodb-cassandra/cassandra-hashing-ring` | Cassandra in Practice: Token Ring, Repair, and Tunable Consistency |  |
+| 324 | todo | topic | - | `case-studies/dynamodb-cassandra/vector-clocks-conflict-resolution` | From Dynamo to DynamoDB: Why Vector Clocks Were Dropped |  |
+| 325 | todo | topic | - | `case-studies/dynamodb-cassandra/hot-partition-problem` | DynamoDB Hot Partitions: Adaptive Capacity and Key Design |  |
+| 326 | todo | chapter-overview | - | `case-studies/dynamodb-cassandra` | Distributed Key-Value Store: DynamoDB / Cassandra |  |
+| 327 | todo | topic | - | `case-studies/microservices-at-scale/netflix-chaos-engineering` | Netflix: The Birth of Chaos Engineering |  |
+| 328 | todo | topic | - | `case-studies/microservices-at-scale/uber-doma` | Uber's Domain-Oriented Microservice Architecture (DOMA) |  |
+| 329 | todo | topic | - | `case-studies/microservices-at-scale/airbnb-migration` | Airbnb's Journey from Monolith to Microservices |  |
+| 330 | todo | chapter-overview | - | `case-studies/microservices-at-scale` | Microservices at Scale: Netflix, Uber, Airbnb |  |
+| 331 | todo | topic | - | `case-studies/realtime-analytics/stream-join-challenges` | Stream Join Challenges: Temporal Join Strategies |  |
+| 332 | todo | topic | - | `case-studies/realtime-analytics/apache-pinot-druid` | Apache Pinot / Druid: OLAP at Low Latency |  |
+| 333 | todo | topic | - | `case-studies/realtime-analytics/data-mesh-principles` | Data Mesh: From Centralized Pipelines to Domain-Owned Data |  |
+| 334 | todo | chapter-overview | - | `case-studies/realtime-analytics` | Real-Time Analytics Platforms |  |
+| 335 | todo | topic | - | `case-studies/distributed-sql/spanner-architecture` | Spanner: Paxos Groups, Placement, and Lock-Free Read-Only Transactions |  |
+| 336 | todo | topic | - | `case-studies/distributed-sql/cockroachdb-raft-hlc` | CockroachDB: Raft, HLC, and Parallel Commits |  |
+| 337 | todo | topic | - | `case-studies/distributed-sql/transactions-2pc-over-consensus` | Distributed Transactions in Practice: 2PC over Consensus |  |
+| 338 | todo | topic | - | `case-studies/distributed-sql/follower-reads-bounded-staleness` | Follower Reads and Bounded Staleness |  |
+| 339 | todo | chapter-overview | - | `case-studies/distributed-sql` | Distributed SQL: Spanner & CockroachDB |  |
+| 340 | todo | topic | - | `case-studies/famous-outages/github-2018-split-brain` | GitHub 2018: 43 Seconds of Partition, 24 Hours of Recovery |  |
+| 341 | todo | topic | - | `case-studies/famous-outages/roblox-2021-consul` | Roblox 2021: The 73-Hour Consul Outage |  |
+| 342 | todo | topic | - | `case-studies/famous-outages/cloudflare-2019-regex` | Cloudflare 2019: The Regex That Stalled the Edge |  |
+| 343 | todo | topic | - | `case-studies/famous-outages/meta-2021-bgp-dns` | Meta 2021: BGP, DNS, and Control Plane Centralization |  |
+| 344 | todo | topic | - | `case-studies/famous-outages/aws-kinesis-2020` | AWS Kinesis 2020: Thread Limits and a Fleet-Wide Restart |  |
+| 345 | todo | chapter-overview | - | `case-studies/famous-outages` | Anatomy of Famous Outages |  |
+| 346 | todo | part-overview | - | `case-studies` | Case Studies |  |
