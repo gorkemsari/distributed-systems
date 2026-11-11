@@ -48,7 +48,6 @@ export default defineConfig({
   site: 'https://gorkemsari.github.io',
   base: '/distributed-systems',
   redirects: {
-    '/': '/distributed-systems/en/',
     // Topics removed, merged, or moved in the November 2026 restructure.
     '/en/coordination/consensus-algorithms/split-brain-fencing': '/distributed-systems/en/data-management/replication/failover-leader-election/',
     '/tr/coordination/consensus-algorithms/split-brain-fencing': '/distributed-systems/tr/data-management/replication/failover-leader-election/',
@@ -78,6 +77,8 @@ export default defineConfig({
   },
   integrations: [
     sitemap({
+      // The root page only redirects to a language; keep it out of the sitemap.
+      filter: (page) => page !== 'https://gorkemsari.github.io/distributed-systems/',
       i18n: {
         defaultLocale: 'en',
         locales: {
