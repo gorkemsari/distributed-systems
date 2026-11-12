@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 64 / 346 done.
+Progress: 65 / 346 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -27,7 +27,7 @@ Progress: 64 / 346 done.
 | 015 | done | topic | standard | `foundations/time-and-ordering/happened-before` | The Happened-Before Relation: Foundation of Causality | 2026-11-04, 4315 words |
 | 016 | done | topic | deep | `foundations/time-and-ordering/lamport-timestamps` | Lamport Timestamps: Capturing Causality | 2026-11-04, 5544 words |
 | 017 | done | topic | standard | `foundations/time-and-ordering/vector-clocks` | Vector Clocks: Detecting Concurrency | 2026-11-04, 4449 words |
-| 018 | todo | topic | - | `foundations/time-and-ordering/distributed-snapshots` | Distributed Snapshots: Chandy-Lamport and Consistent Cuts |  |
+| 018 | done | topic | deep | `foundations/time-and-ordering/distributed-snapshots` | Distributed Snapshots: Chandy-Lamport and Consistent Cuts | 2026-11-12, 6161 words |
 | 019 | done | topic | standard | `foundations/time-and-ordering/hybrid-logical-clocks` | Hybrid Logical Clocks (HLC): Combining Physical and Logical Time | 2026-11-04, 4398 words |
 | 020 | done | topic | standard | `foundations/time-and-ordering/truetime-spanner` | Google TrueTime & Spanner: Working with Uncertainty | 2026-11-04, 4416 words |
 | 021 | done | topic | standard | `foundations/time-and-ordering/distributed-id-generation` | Distributed ID Generation: UUIDv7, Snowflake, ULID | 2026-11-04, 4500 words |
