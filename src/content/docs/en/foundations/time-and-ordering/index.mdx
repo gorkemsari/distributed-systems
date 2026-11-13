@@ -1,131 +1,139 @@
 ---
 title: Time and Ordering
-description: "Why no two machines share a clock, the three ways to order events anyway (physical, logical, hybrid), what each costs, and how to read this chapter."
-lastUpdated: 2026-11-04
+description: How the chapter orders events without a shared clock, using physical, logical, and hybrid time, consistent cuts and IDs, and what each one costs.
+lastUpdated: 2026-11-13
 ---
 
-A distributed system has no "now". Every machine reads its own oscillator, the synchronization protocol that corrects it can only estimate the offset through a network whose one-way delays it cannot measure, and a message between two machines in the same data center can take less time to arrive than the disagreement between their clocks. Yet nearly every replicated component has to answer an ordering question: which of two writes is newer, whether a lease has run out, whether a read may return a value or must wait, which events a snapshot must include, and which ID sorts first. This chapter is about how to answer those questions when the only clocks available are wrong by an unknown amount.
+Two servers in the same data center, both synchronized by the Network Time Protocol (NTP), routinely disagree about the current time by more than a packet takes to travel between them, so a reply can carry an earlier timestamp than the request that caused it, and nothing reports an error. Every replicated component still has to decide questions of order: which of two writes is newer, whether a lease has run out, whether a read may return now or must wait, which events belong in a recovery point, and which identifier sorts first. This chapter answers them when every available clock is wrong by an amount nobody measures at the moment of use.
 
-The single problem the chapter addresses is how to order events across machines without a shared clock, and how to know what the resulting order does and does not mean. There are only three answers, and the eight topics trace them. A system can trust physical time and carry its error bound explicitly; it can ignore physical time and order events by which could have influenced which; or it can combine the two, keeping causal order and staying close enough to wall time that "five seconds ago" still means something.
+The single problem the chapter addresses is how to order events across machines without a shared clock, and how to know exactly what the resulting order does and does not promise. The nine topics give three answers and two applications. A system can trust physical time and carry its error explicitly; it can abandon physical time and order events by which could have influenced which; or it can combine the two, keeping causal order while staying close enough to wall time that "five seconds ago" still means something. The applications are recording a consistent global state of a running system, and minting identifiers whose order approximates creation time.
 
-The tension that runs through every topic is between meaning and safety, and the price is paid in one of three currencies. A physical timestamp carries meaning outside the system, for humans, deadlines, and TTLs, but two of them from different machines can be ordered wrongly, so its price is a correctness risk inside the error window. A logical clock never inverts a causal pair, but it says nothing about real time, and telling concurrency apart from order costs metadata that grows with the number of independent actors. Making a physical timestamp safe for real-time order costs waiting: Spanner holds every commit until its timestamp is guaranteed to be in the past everywhere. Each mechanism in the chapter chooses which of risk, metadata, or latency to pay, and the failure modes on every page come from systems that believed they had paid none.
+The tension that runs through every page is that order always costs something; the only choice is the currency. A physical timestamp carries meaning outside the system, for humans, deadlines, and expiry, but two of them from different machines can be ordered wrongly, so its price is a correctness risk inside the error window. A logical clock never inverts a cause and its effect, but it says nothing about real time, and telling concurrent events apart from ordered ones costs metadata that grows with the number of independent actors. Making a physical timestamp safe for real-time order costs latency: the system must wait until the uncertainty has passed. Every mechanism in the chapter picks one of risk, metadata, or waiting, and the failure modes on each page come from systems that believed they had paid none.
 
-## From Oscillators to Identifiers: How the Topics Build on Each Other
+## From Oscillators to Identifiers: The Shape of the Argument
 
-The chapter is ordered as an argument. It starts with how a clock reading is made, separates the two clocks a process can read, then abandons physical time to define the order a system can actually observe. Two encodings of that order follow, one minimal and one exact, and the last three topics bring physical time back in, each under a different contract with its error bound.
+The chapter is ordered as one argument, not a catalog. It begins with how a clock reading is produced and how wrong it can be, separates the clock that measures intervals from the clock that names instants, and then gives up on physical time altogether to define the order a system can actually observe. Two encodings of that order follow, then a snapshot algorithm that puts it to work, and the last three topics bring physical time back, each under a different contract with its error.
 
 ```mermaid
 flowchart TD
-    PC["1.3.1 Physical Clocks: drift, NTP, leap seconds"]
+    PC["1.3.1 Physical Clocks"]
     MT["1.3.2 Monotonic vs Time-of-Day"]
     HB["1.3.3 Happened-Before"]
     LT["1.3.4 Lamport Timestamps"]
     VC["1.3.5 Vector Clocks"]
-    HLC["1.3.6 Hybrid Logical Clocks"]
-    TT["1.3.7 TrueTime and Spanner"]
-    ID["1.3.8 Distributed ID Generation"]
+    DS["1.3.6 Distributed Snapshots"]
+    HLC["1.3.7 Hybrid Logical Clocks"]
+    TT["1.3.8 TrueTime and Spanner"]
+    ID["1.3.9 Distributed ID Generation"]
     PC -->|"wall clock can step"| MT
     PC -->|"timestamps cannot order across machines"| HB
     HB -->|"keep the direction only"| LT
     HB -->|"keep concurrency too"| VC
-    LT -->|"counter seeded from physical time"| HLC
-    PC -->|"error bound made explicit"| TT
-    HLC -->|"uncertainty left open"| TT
-    PC -->|"time prefix is a wall clock reading"| ID
-    MT -.->|"regression and restart policy"| ID
+    HB -->|"consistent cut, no orphans"| DS
+    LT -->|"add physical time to the counter"| HLC
+    PC -->|"bound the error, then wait"| TT
+    HLC -->|"no real-time order without messages"| TT
+    PC -->|"time prefix inherits clock error"| ID
 ```
 
-*Dependencies between the chapter's topics. Solid arrows show which conclusion each page hands to the next; the dashed arrow marks a policy question that ID generators inherit from the clock-reading page.*
+*Dependencies between the chapter's topics. Each arrow names the result or limitation that one page hands to the next.*
 
-Physical clocks is the root because every other page reacts to its conclusion: a timestamp from one machine and a timestamp from another differ by an amount that is usually small, occasionally large, and never known exactly at the moment of use. Two pages take it in opposite directions: the monotonic-clock page shows that even on one machine the wall clock is the wrong tool for durations, because it can be stepped, and the happened-before page leaves physical time and defines order by possible influence.
+Physical clocks sit at the root because every later page reacts to their error. One reaction is local to a machine: because the wall clock can be stepped, intervals must be measured with a clock that cannot be. The others concern comparing machines. Happened-before is the order that survives once cross-machine timestamps are distrusted, and its three outgoing arrows are three uses: keep only its direction in one integer, keep it exactly in a vector, or cut history along it to record a state that could have existed.
 
-Lamport timestamps and vector clocks are the two ends of encoding that relation. A Lamport counter keeps the direction of every causal pair in eight bytes but also orders concurrent events arbitrarily; a vector clock tells concurrency apart from order exactly, at one entry per actor. Hybrid logical clocks take the Lamport rules and seed the counter from the physical clock, which keeps causality and adds bounded closeness to wall time, yet leaves open the case of two clients that never exchanged a message. TrueTime closes that case by measuring the error bound and waiting it out. Distributed ID generation draws on the physical-clock page twice: its time prefix is a wall-clock reading with all its error, and its behavior when the clock moves backward is the same policy choice the monotonic-clock page discusses for durations.
+The right side returns to physical time with its error made explicit. A hybrid logical clock anchors a Lamport counter to the physical clock, staying close to real time without waiting, but it cannot order events that never exchanged a message. TrueTime takes the opposite path from the same starting point: it measures the clock error as an interval and waits it out, which buys real-time order between unrelated transactions. Time-prefixed identifiers inherit the clock error directly, so their order is only approximate.
 
 ## The Question Each Topic Answers
 
-[Physical Clocks: Quartz Drift, NTP Limitations, Leap Second Problem](/distributed-systems/en/foundations/time-and-ordering/physical-clocks/) answers how wrong a server's clock is right now, where that error comes from, and how to budget for it. Open it before writing any logic that compares timestamps from two machines, and when configuring or monitoring the time-synchronization daemon.
+[Physical Clocks: Quartz Drift, NTP Limitations, Leap Second Problem](/distributed-systems/en/foundations/time-and-ordering/physical-clocks/) answers how large clock error is, where it comes from, and why a synchronization protocol cannot measure the part of it caused by asymmetric network paths. It also treats the corrections themselves, stepping, slewing, and leap-second smearing, as a source of outages. Open it before setting any parameter that is a bound on clock offset.
 
-[Monotonic Clocks vs. Time-of-Day: Which One to Use](/distributed-systems/en/foundations/time-and-ordering/monotonic-vs-time-of-day/) answers which clock a process should read for which purpose, and how to time leases and timeouts across machines using durations instead of timestamps. Open it when reviewing deadline, backoff, or lease-expiry code.
+[Monotonic Clocks vs. Time-of-Day: Which One to Use](/distributed-systems/en/foundations/time-and-ordering/monotonic-vs-time-of-day/) answers which of the two clocks a process can read belongs in a timeout, a lease check, a latency metric, or a database column, and what goes wrong when a deadline computed on one machine is interpreted on another. Many timer bugs are a wall-clock reading used where an interval was meant.
 
-[The Happened-Before Relation: Foundation of Causality](/distributed-systems/en/foundations/time-and-ordering/happened-before/) answers which order a distributed system can actually observe, and why that is the right definition of causality. Every later page in the chapter is an encoding or a consumer of this relation, so open it whenever a design depends on order across processes that do not share a sequencer.
+[The Happened-Before Relation: Foundation of Causality](/distributed-systems/en/foundations/time-and-ordering/happened-before/) answers which order a distributed system can actually observe, and why "could the first event have influenced the second" replaces "which occurred first". Every later page uses its vocabulary of causal order, concurrency, and consistent cuts.
 
-[Lamport Timestamps: Capturing Causality](/distributed-systems/en/foundations/time-and-ordering/lamport-timestamps/) answers how a single counter per process produces an order that every participant computes identically and that never contradicts cause and effect. The same idea runs under Raft terms and Paxos ballot numbers. Open it when an algorithm needs a deterministic total order without a coordinator, and to learn why that order says nothing about whether two events were concurrent.
+[Lamport Timestamps: Capturing Causality](/distributed-systems/en/foundations/time-and-ordering/lamport-timestamps/) answers how a single integer per process can produce an order that never contradicts causality and that every process computes identically. It explains why that order is arbitrary for concurrent events, and how Raft terms and Paxos ballots use the same idea.
 
-[Vector Clocks: Detecting Concurrency](/distributed-systems/en/foundations/time-and-ordering/vector-clocks/) answers how a replicated store can tell "this write superseded that one" apart from "these two writers never saw each other", and what that exactness costs. Open it when designing multi-leader or leaderless conflict handling.
+[Vector Clocks: Detecting Concurrency](/distributed-systems/en/foundations/time-and-ordering/vector-clocks/) answers how a replicated store can tell "this write superseded that one" apart from "these writers never saw each other", which is the difference between safely discarding a version and silently losing a write. Most of the page is about the cost: who counts as an actor, and what happens when the vector grows.
 
-[Hybrid Logical Clocks (HLC): Combining Physical and Logical Time](/distributed-systems/en/foundations/time-and-ordering/hybrid-logical-clocks/) answers how one 64-bit timestamp can respect causality and also stay within the clock-offset bound of wall time, which is what multiversion databases need for snapshot reads. Open it when operating CockroachDB or YugabyteDB, reasoning about MongoDB cluster time, or choosing timestamps for an MVCC design on commodity clocks.
+[Distributed Snapshots: Chandy-Lamport and Consistent Cuts](/distributed-systems/en/foundations/time-and-ordering/distributed-snapshots/) answers how to record the state of every process and every in-flight message without pausing the system, so that the result never contains an effect without its cause. It is the theory behind stream-processor checkpoints, and it explains why the recorded state was possible rather than observed at one instant.
 
-[Google TrueTime & Spanner: Working with Uncertainty](/distributed-systems/en/foundations/time-and-ordering/truetime-spanner/) answers how real-time order between clients that never communicate can be guaranteed using clocks at all, and what the guarantee costs per commit. Open it when a requirement says "a read started after a write finished must see it" across regions, or when evaluating a provider clock-bound service.
+[Hybrid Logical Clocks (HLC): Combining Physical and Logical Time](/distributed-systems/en/foundations/time-and-ordering/hybrid-logical-clocks/) answers how a timestamp can be causally consistent and still mean a real moment, which multiversion databases need for snapshot reads and time-based expiry. It is also the page that shows how one node with a clock far in the future drags every other node's timestamps along with it.
 
-[Distributed ID Generation: UUIDv7, Snowflake, ULID](/distributed-systems/en/foundations/time-and-ordering/distributed-id-generation/) answers where uniqueness comes from in each identifier scheme, what a time prefix does to B-tree indexes and range-partitioned stores, and how generators fail through clock regression and reused node IDs. Open it when choosing a primary-key format, and whenever someone proposes sorting by ID as a substitute for ordering by cause.
+[Google TrueTime & Spanner: Working with Uncertainty](/distributed-systems/en/foundations/time-and-ordering/truetime-spanner/) answers what it takes to order transactions that share no messages at all, so that every transaction observes everything that committed before it started. It shows clock uncertainty becoming a latency cost instead of a correctness risk, and the infrastructure and lock hold time that costs.
+
+[Distributed ID Generation: UUIDv7, Snowflake, ULID](/distributed-systems/en/foundations/time-and-ordering/distributed-id-generation/) answers where uniqueness comes from in each scheme, how a time prefix changes index locality and write hot spots, and how generators behave when the clock moves backward.
 
 | Topic | Question it answers | Open it when |
 |---|---|---|
-| [Physical Clocks](/distributed-systems/en/foundations/time-and-ordering/physical-clocks/) | How large is the clock error right now, and where does it come from? | Comparing timestamps across machines, configuring NTP or PTP, planning for leap seconds |
-| [Monotonic vs. Time-of-Day](/distributed-systems/en/foundations/time-and-ordering/monotonic-vs-time-of-day/) | Which clock measures a duration, and which labels an event? | Reviewing timeouts, backoff, rate limits, lease checks, latency metrics |
-| [Happened-Before](/distributed-systems/en/foundations/time-and-ordering/happened-before/) | Which order can the system observe, and which events are concurrent? | Designing snapshots, conflict policies, read-your-writes across services, incident timelines |
-| [Lamport Timestamps](/distributed-systems/en/foundations/time-and-ordering/lamport-timestamps/) | How can every replica derive the same order without a coordinator? | Ordering operations every replica receives, reading term or ballot logic |
-| [Vector Clocks](/distributed-systems/en/foundations/time-and-ordering/vector-clocks/) | Were these two writes ordered or concurrent? | Building multi-leader or leaderless conflict detection, debugging siblings |
-| [Hybrid Logical Clocks](/distributed-systems/en/foundations/time-and-ordering/hybrid-logical-clocks/) | How can a timestamp be causal and close to wall time at once? | Choosing MVCC timestamps, operating an HLC database, investigating a clock that ran ahead |
-| [TrueTime and Spanner](/distributed-systems/en/foundations/time-and-ordering/truetime-spanner/) | How can real-time order hold between clients that never communicate? | External consistency across regions, judging commit latency against the clock bound |
-| [Distributed ID Generation](/distributed-systems/en/foundations/time-and-ordering/distributed-id-generation/) | Where does uniqueness come from, and what does time order cost the index? | Choosing a key format, assigning node IDs, diagnosing insert hot spots |
+| [Physical Clocks](/distributed-systems/en/foundations/time-and-ordering/physical-clocks/) | How wrong is a server clock, and why can't synchronization measure all of the error? | Setting a maximum clock offset, choosing NTP or PTP, planning for leap seconds |
+| [Monotonic vs. Time-of-Day](/distributed-systems/en/foundations/time-and-ordering/monotonic-vs-time-of-day/) | Which clock belongs in a timeout, a lease, a metric, or a stored timestamp? | Writing timer code, reviewing lease checks, chasing a latency metric that went negative |
+| [Happened-Before](/distributed-systems/en/foundations/time-and-ordering/happened-before/) | Which order can a system observe, and what does "concurrent" mean precisely? | Reasoning about causal consistency, conflicts, or any argument about "before" |
+| [Lamport Timestamps](/distributed-systems/en/foundations/time-and-ordering/lamport-timestamps/) | How can processes agree on one order without agreeing on time? | Designing a replicated log, epochs, terms, or a total-order tie-break |
+| [Vector Clocks](/distributed-systems/en/foundations/time-and-ordering/vector-clocks/) | How can a store detect that two writes were concurrent instead of guessing? | Choosing conflict detection for multi-leader or leaderless replication |
+| [Distributed Snapshots](/distributed-systems/en/foundations/time-and-ordering/distributed-snapshots/) | How can a running system record a global state that could actually have existed? | Configuring stream checkpoints, building recovery points, detecting stable properties |
+| [Hybrid Logical Clocks](/distributed-systems/en/foundations/time-and-ordering/hybrid-logical-clocks/) | How can one timestamp be both causal and close to wall time? | Building MVCC reads, as-of-time reads, or TTLs on a causally ordered store |
+| [TrueTime and Spanner](/distributed-systems/en/foundations/time-and-ordering/truetime-spanner/) | What does real-time order between unrelated transactions cost? | Evaluating external consistency, commit latency, or a database's clock assumptions |
+| [Distributed ID Generation](/distributed-systems/en/foundations/time-and-ordering/distributed-id-generation/) | How do generators stay unique without coordination, and what does a time prefix cost? | Choosing a primary key format, debugging duplicate IDs or a hot key range |
 
-The chapter's mechanisms can also be placed against each other on the two properties the opening named: how much a timestamp says about causality, and how much it says about real time. The chart is a qualitative map; the precise comparison is the table on the hybrid-logical-clocks page.
+## Matching the Question to the Clock
+
+Most production mistakes in this area are not wrong algorithms but the right algorithm answering a different question. A lease check on the wall clock measures an interval with a clock that can jump; a last-write-wins store that compares wall-clock timestamps uses a physical order where it needed a causal one; a conflict detector built on a single counter asks for concurrency information the counter never had. The diagram reads the chapter backward, from the question to the page that owns the answer.
 
 ```mermaid
-quadrantChart
-    title What a timestamp tells you
-    x-axis No causal information --> Exact concurrency detection
-    y-axis No link to real time --> Guaranteed real time order
-    quadrant-1 Causal and real time
-    quadrant-2 Real time without causality
-    quadrant-3 Order without meaning
-    quadrant-4 Causality without time
-    Wall clock timestamp: [0.08, 0.6]
-    Time ordered ID: [0.2, 0.53]
-    Lamport timestamp: [0.55, 0.08]
-    Vector clock: [0.9, 0.08]
-    HLC: [0.55, 0.6]
-    Spanner commit timestamp: [0.55, 0.92]
+flowchart TD
+    Q["What does the code need to know?"]
+    D["How much time has passed locally"]
+    W["What time it is, for humans or other systems"]
+    C["Whether one event could have caused another"]
+    X["Whether two events were concurrent"]
+    R["Real-time order with no messages in between"]
+    G["A global state of the whole system"]
+    U["A unique key that sorts by creation time"]
+    Q --> D -->|"1.3.2"| M1["Monotonic clock"]
+    Q --> W -->|"1.3.1, 1.3.2"| M2["Time-of-day clock plus its error"]
+    Q --> C -->|"1.3.4, 1.3.7"| M3["Lamport or hybrid logical clock"]
+    Q --> X -->|"1.3.5"| M4["Vector clock or version vector"]
+    Q --> R -->|"1.3.8"| M5["Bounded uncertainty and commit wait"]
+    Q --> G -->|"1.3.6"| M6["Consistent cut via markers"]
+    Q --> U -->|"1.3.9"| M7["Time-prefixed ID scheme"]
 ```
 
-*Qualitative positions of the chapter's mechanisms. Horizontal: from no causal information, through keeping the direction of causal pairs, to detecting concurrency. Vertical: from no relation to real time, through approximate closeness, to guaranteed real-time order.*
+*From the question a piece of code asks to the mechanism, and the chapter page, that answers it. Each mechanism is correct only for its own question.*
 
-The empty corner is the instructive part. No mechanism in the chapter reaches the far top right, because exact concurrency detection and guaranteed real-time order are paid for in different currencies, metadata per actor and waiting on a measured bound, and no production system pays both on the same timestamp. Lamport timestamps, HLC, and Spanner sit at the same causal position, keeping direction but not detecting concurrency; what separates them vertically is whether physical time is ignored, assumed to be within a bound, or waited out.
+The branches are not interchangeable, and each has its own cost. A monotonic clock is free but local. A time-of-day reading is free but carries an error that must be budgeted. A Lamport or hybrid clock costs a few bytes per message and every causal path must carry it; a vector costs one entry per actor; real-time order costs waiting on every commit. A consistent cut costs control messages and, in stream processors, either blocked inputs or recorded in-flight data. A design on the causal branch later asked for real-time order needs a different mechanism, not a tuning change.
 
 ## Reading Order and Why
 
-Read the chapter in sidebar order on a first pass. The physical-clock page establishes the error that every later page either tolerates or removes, and the happened-before page defines the vocabulary (concurrent, causal past, consistent cut) that the logical-clock pages use without re-deriving. Lamport timestamps must come before both vector clocks and HLC: vector clocks generalize the single counter into one entry per process, and HLC reuses its update rules. TrueTime reads best after HLC, whose open stale-read case motivates it, and ID generation last, once a time prefix is understood as a wall-clock reading with no receive rule.
+Read the chapter in sidebar order on a first pass. Each page links to the conclusions of earlier ones instead of re-deriving them: the logical-clock pages rely on the physical-clocks page for the claim that timestamps cannot order events across machines, the snapshot page relies on happened-before for the definition of a consistent cut, and the TrueTime page compares itself against hybrid logical clocks.
 
-Three shortcuts are reasonable. An engineer fixing timeout, lease, or latency-measurement bugs on a single service can read the first two pages and stop. An engineer designing conflict handling for replicated data should read happened-before, Lamport timestamps, and vector clocks, then continue to the consistency-models chapter. An engineer choosing or operating a distributed SQL database should read physical clocks, HLC, and TrueTime together, because the three pages describe one spectrum of answers to the same question: what to do about the clock-offset bound.
+Three shorter paths are reasonable. An engineer fixing timer, timeout, or lease code needs only physical clocks and monotonic versus time-of-day. An engineer choosing conflict handling for a replicated store should read happened-before, Lamport timestamps, and vector clocks, in that order, because the second and third are the two encodings of the first and differ exactly in whether they detect concurrency. An engineer evaluating a distributed SQL database should read physical clocks, hybrid logical clocks, and TrueTime together, since they compare the two clock designs these databases use. The snapshot and ID-generation pages stand alone once happened-before and physical clocks are familiar.
 
 ## Where the Chapter Sits in the Handbook
 
-The chapter assumes [System Models and Failure Types](/distributed-systems/en/foundations/system-models/), and specifically two of its results. [Network Models](/distributed-systems/en/foundations/system-models/network-models/) treats bounded clock drift as a timing assumption, which this chapter turns into a number with a source and a failure mode. [Failure Models](/distributed-systems/en/foundations/system-models/failure-models/) defines crash-recovery, the model under which a restarted process can reuse a counter, a node ID, or a timestamp it already issued; several failure modes in this chapter are that amnesia applied to a clock.
+The chapter builds on [System Models and Failure Types](/distributed-systems/en/foundations/system-models/), and in particular on [Network Models](/distributed-systems/en/foundations/system-models/network-models/): a bound on clock drift is a timing assumption, and any algorithm whose safety depends on it inherits the risk of that assumption being violated. It closes [Foundations & The Laws of Physics](/distributed-systems/en/foundations/), and most data and coordination chapters consume one of its mechanisms.
 
 ```mermaid
 flowchart LR
-    SM["1.2 System Models and Failure Types"]
+    SM["1.2 System Models"]
     CH["1.3 Time and Ordering"]
     CM["Consistency Models"]
     RP["Replication"]
+    CO["Consensus Algorithms"]
     LK["Distributed Locking"]
-    CA["Consensus Algorithms"]
-    DP["Data Partitioning"]
     SP["Stream Processing"]
-    DS["Distributed SQL case studies"]
-    SM -->|"bounded drift, crash-recovery"| CH
-    CH -->|"causal order, real-time order"| CM
-    CH -->|"conflict detection"| RP
-    CH -->|"leases need durations, not timestamps"| LK
-    CH -->|"terms and ballots as logical clocks"| CA
-    CH -->|"time-ordered keys concentrate writes"| DP
-    CH -->|"event time is a physical timestamp"| SP
-    CH -->|"HLC and TrueTime in production"| DS
+    CS["Distributed SQL Case Studies"]
+    PT["Data Partitioning"]
+    SM -->|"bounded drift is a timing assumption"| CH
+    CH -->|"causal order, LWW risk"| CM
+    CH -->|"version vectors, conflict detection"| RP
+    CH -->|"terms and ballots as Lamport clocks"| CO
+    CH -->|"leases on monotonic time"| LK
+    CH -->|"consistent cuts as checkpoints"| SP
+    CH -->|"HLC and TrueTime in production"| CS
+    CH -->|"time-ordered keys and hot ranges"| PT
 ```
 
-*Where the chapter's mechanisms are consumed later. Each arrow names what the target chapter inherits from this one.*
+*Where the chapter's mechanisms are consumed later. Each arrow names what the target chapter takes from this one.*
 
-The diagram shows that the chapter supplies orders, and the later chapters choose which order to promise. [Linearizability](/distributed-systems/en/data-management/consistency-models/linearizability/) is the real-time order TrueTime makes affordable, [causal consistency and session guarantees](/distributed-systems/en/data-management/consistency-models/causal-consistency-session-guarantees/) are the happened-before relation offered to clients, and [CRDTs](/distributed-systems/en/data-management/consistency-models/crdts/) and [weak isolation with MVCC](/distributed-systems/en/data-management/consistency-models/weak-isolation-mvcc/) consume Lamport-style operation IDs and HLC snapshot timestamps. Concurrent writes detected by vector clocks are resolved in [leaderless](/distributed-systems/en/data-management/replication/leaderless-replication/) and [multi-leader replication](/distributed-systems/en/data-management/replication/multi-leader-replication/), and the Dynamo lineage is told in [Vector Clocks in the Dynamo Paper](/distributed-systems/en/case-studies/dynamodb-cassandra/vector-clocks-conflict-resolution/).
+The consistency models chapter turns happened-before into client-visible guarantees: [Causal Consistency and Session Guarantees](/distributed-systems/en/data-management/consistency-models/causal-consistency-session-guarantees/) is causal order offered as a contract, [Linearizability](/distributed-systems/en/data-management/consistency-models/linearizability/) is the real-time order that TrueTime pays to provide, and [Eventual Consistency](/distributed-systems/en/data-management/consistency-models/eventual-consistency/) covers last-write-wins and the writes it loses when clocks disagree. The replication chapter applies version vectors in [Multi-Leader Replication](/distributed-systems/en/data-management/replication/multi-leader-replication/) and [Leaderless Replication](/distributed-systems/en/data-management/replication/leaderless-replication/), and [CRDTs](/distributed-systems/en/data-management/consistency-models/crdts/) build on the same causal metadata.
 
-The clock-reading rules return in [Lease-Based Locking](/distributed-systems/en/coordination/distributed-locking/lease-based-locking/), where a paused or skewed holder makes [fencing tokens](/distributed-systems/en/coordination/distributed-locking/fencing-tokens/) necessary, and the logical-clock idea returns as the term number in [Raft](/distributed-systems/en/coordination/consensus-algorithms/raft/). The index cost of time-ordered IDs becomes a partitioning problem in [Key-Range Partitioning](/distributed-systems/en/data-management/data-partitioning/key-range-partitioning/) and [Skew and Hot Spots](/distributed-systems/en/data-management/data-partitioning/skew-hot-spots/). [Event Time vs. Processing Time](/distributed-systems/en/data-processing/stream-processing/event-time-vs-processing-time/) applies physical-clock error to stream windows. Finally, the two production designs at the top of the chapter's spectrum are examined end to end in [CockroachDB: Raft, HLC, and Parallel Commits](/distributed-systems/en/case-studies/distributed-sql/cockroachdb-raft-hlc/) and [Spanner: TrueTime, Paxos Groups, and External Consistency](/distributed-systems/en/case-studies/distributed-sql/spanner-architecture/); [distributed tracing](/distributed-systems/en/observability/logs-metrics-traces/distributed-tracing/) is where clock skew shows up daily, as a child span that starts before its parent.
+On the coordination side, [Raft](/distributed-systems/en/coordination/consensus-algorithms/raft/) and [Paxos](/distributed-systems/en/coordination/consensus-algorithms/paxos/) use monotonically increasing terms and ballots in the role a Lamport clock plays here, and [Lease-Based Locking](/distributed-systems/en/coordination/distributed-locking/lease-based-locking/) depends on the monotonic-clock discipline and on [Fencing Tokens](/distributed-systems/en/coordination/distributed-locking/fencing-tokens/) for the case where clocks or pauses break it. Consistent cuts reappear as checkpoints in [Apache Flink](/distributed-systems/en/data-processing/stream-processing/apache-flink/). The two production clock designs are examined end to end in [Spanner: Paxos Groups, Placement, and Lock-Free Read-Only Transactions](/distributed-systems/en/case-studies/distributed-sql/spanner-architecture/) and [CockroachDB: Raft, HLC, and Parallel Commits](/distributed-systems/en/case-studies/distributed-sql/cockroachdb-raft-hlc/), and the write hot spots that time-ordered keys create in range-partitioned stores are treated in [Skew and Hot-Spot Problems](/distributed-systems/en/data-management/data-partitioning/skew-hot-spots/).

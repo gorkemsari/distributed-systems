@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 65 / 346 done.
+Progress: 66 / 346 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -31,7 +31,7 @@ Progress: 65 / 346 done.
 | 019 | done | topic | standard | `foundations/time-and-ordering/hybrid-logical-clocks` | Hybrid Logical Clocks (HLC): Combining Physical and Logical Time | 2026-11-04, 4398 words |
 | 020 | done | topic | standard | `foundations/time-and-ordering/truetime-spanner` | Google TrueTime & Spanner: Working with Uncertainty | 2026-11-04, 4416 words |
 | 021 | done | topic | standard | `foundations/time-and-ordering/distributed-id-generation` | Distributed ID Generation: UUIDv7, Snowflake, ULID | 2026-11-04, 4500 words |
-| 022 | todo | chapter-overview | - | `foundations/time-and-ordering` | Time and Ordering | regenerate: restructure added a topic to chapter 1.3 (2026-11-11) |
+| 022 | done | chapter-overview | - | `foundations/time-and-ordering` | Time and Ordering | 2026-11-13, 1790 words |
 | 023 | todo | part-overview | - | `foundations` | Foundations & The Laws of Physics | regenerate: restructure added a topic to chapter 1.3 (2026-11-11) |
 | 024 | done | topic | standard | `communication/synchronous-protocols/rest` | REST: Constraints, Resources, and HTTP Contracts | 2026-11-04, 4254 words |
 | 025 | done | topic | deep | `communication/synchronous-protocols/http2-http3-quic` | HTTP/2 and HTTP/3: Multiplexing, HOL Blocking, and QUIC | 2026-11-04, 5411 words |
