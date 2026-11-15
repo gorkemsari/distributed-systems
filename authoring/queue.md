@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 67 / 346 done.
+Progress: 68 / 346 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -77,7 +77,7 @@ Progress: 67 / 346 done.
 | 065 | done | topic | deep | `data-management/replication/replication-lag` | Replication Lag Problems: Read-Your-Own-Writes | 2026-11-09, 6120 words |
 | 066 | done | topic | deep | `data-management/replication/multi-leader-replication` | Multi-Leader Replication: Write Conflicts and Resolution | 2026-11-10, 6753 words |
 | 067 | done | topic | deep | `data-management/replication/leaderless-replication` | Leaderless Replication (Dynamo-style): Quorum R + W > N | 2026-11-11, 5488 words |
-| 068 | todo | topic | - | `data-management/replication/anti-entropy-merkle` | Anti-Entropy: Read Repair and Merkle Trees |  |
+| 068 | done | topic | deep | `data-management/replication/anti-entropy-merkle` | Anti-Entropy: Read Repair and Merkle Trees | 2026-11-15, 5881 words |
 | 069 | todo | chapter-overview | - | `data-management/replication` | Replication Strategies |  |
 | 070 | todo | topic | - | `data-management/consistency-models/linearizability` | Linearizability: The Strongest Guarantee, the Highest Cost |  |
 | 071 | todo | topic | - | `data-management/consistency-models/serializability` | Serializability: Transaction Isolation |  |
