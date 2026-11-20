@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 72 / 346 done.
+Progress: 73 / 346 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -82,7 +82,7 @@ Progress: 72 / 346 done.
 | 070 | done | topic | deep | `data-management/consistency-models/linearizability` | Linearizability: The Strongest Guarantee, the Highest Cost | 2026-11-17, 5726 words |
 | 071 | done | topic | deep | `data-management/consistency-models/serializability` | Serializability: Transaction Isolation | 2026-11-18, 6438 words |
 | 072 | done | topic | deep | `data-management/consistency-models/weak-isolation-mvcc` | Weak Isolation and MVCC: Read Committed, Snapshot Isolation, Write Skew | 2026-11-19, 6605 words |
-| 073 | todo | topic | - | `data-management/consistency-models/cap-theorem` | CAP Theorem: CP vs. AP Systems |  |
+| 073 | done | topic | deep | `data-management/consistency-models/cap-theorem` | CAP Theorem: CP vs. AP Systems | 2026-11-20, 5335 words |
 | 074 | todo | topic | - | `data-management/consistency-models/pacelc-theorem` | PACELC Theorem: The Latency-Consistency Trade-off |  |
 | 075 | todo | topic | - | `data-management/consistency-models/causal-consistency-session-guarantees` | Causal Consistency and Session Guarantees: The Middle of the Spectrum |  |
 | 076 | todo | topic | - | `data-management/consistency-models/eventual-consistency` | Eventual Consistency: Last Write Wins (LWW) and Its Weaknesses |  |
