@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 78 / 346 done.
+Progress: 79 / 346 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -88,7 +88,7 @@ Progress: 78 / 346 done.
 | 076 | done | topic | deep | `data-management/consistency-models/eventual-consistency` | Eventual Consistency: Last Write Wins (LWW) and Its Weaknesses | 2026-11-23, 6185 words |
 | 077 | done | topic | deep | `data-management/consistency-models/crdts` | CRDTs: Conflict-free Replicated Data Types | 2026-11-24, 6336 words |
 | 078 | done | chapter-overview | - | `data-management/consistency-models` | Consistency Models | 2026-11-25, 1795 words |
-| 079 | todo | topic | - | `data-management/storage-engines/lsm-tree-vs-b-tree` | LSM-Tree vs. B-Tree: Write and Read Performance Trade-offs |  |
+| 079 | done | topic | deep | `data-management/storage-engines/lsm-tree-vs-b-tree` | LSM-Tree vs. B-Tree: Write and Read Performance Trade-offs | 2026-11-26, 6041 words |
 | 080 | todo | topic | - | `data-management/storage-engines/sstables-memtable-compaction` | SSTables, Memtable, and Compaction Strategies |  |
 | 081 | todo | topic | - | `data-management/storage-engines/bloom-filters` | Bloom Filters: Reducing Disk Reads |  |
 | 082 | todo | topic | - | `data-management/storage-engines/write-ahead-log` | Write-Ahead Log (WAL): The Foundation of Durability |  |
