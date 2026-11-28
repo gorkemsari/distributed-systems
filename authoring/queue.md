@@ -6,7 +6,7 @@ Depth is chosen by each run for topic pages (`standard` or `deep`, see
 project-instruction.md section 2.1); `-` means not yet generated or not a topic page.
 Each scheduled run takes the first `todo` row from the top.
 
-Progress: 80 / 346 done.
+Progress: 81 / 346 done.
 
 | # | Status | Type | Depth | Slug | Title | Note |
 |---|---|---|---|---|---|---|
@@ -90,7 +90,7 @@ Progress: 80 / 346 done.
 | 078 | done | chapter-overview | - | `data-management/consistency-models` | Consistency Models | 2026-11-25, 1795 words |
 | 079 | done | topic | deep | `data-management/storage-engines/lsm-tree-vs-b-tree` | LSM-Tree vs. B-Tree: Write and Read Performance Trade-offs | 2026-11-26, 6041 words |
 | 080 | done | topic | deep | `data-management/storage-engines/sstables-memtable-compaction` | SSTables, Memtable, and Compaction Strategies | 2026-11-27, 6660 words |
-| 081 | todo | topic | - | `data-management/storage-engines/bloom-filters` | Bloom Filters: Reducing Disk Reads |  |
+| 081 | done | topic | deep | `data-management/storage-engines/bloom-filters` | Bloom Filters: Reducing Disk Reads | 2026-11-28, 6036 words |
 | 082 | todo | topic | - | `data-management/storage-engines/write-ahead-log` | Write-Ahead Log (WAL): The Foundation of Durability |  |
 | 083 | todo | topic | - | `data-management/storage-engines/erasure-coding` | Erasure Coding vs. Replication: Durability per Byte |  |
 | 084 | todo | topic | - | `data-management/storage-engines/columnar-storage` | Columnar Storage: Advantages in Analytical Queries |  |
